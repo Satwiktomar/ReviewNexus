@@ -44,13 +44,13 @@ def run_pipeline_in_background(dish: str, city: str):
         raw_data_filename = DATA_DIR / f"data_{clean_dish}_{clean_city}.json"
         ranked_csv_filename = DATA_DIR / f'ranked_{clean_dish}_{clean_city}.csv'
         
-        # Check cache
+        
         if raw_data_filename.exists() and is_cache_valid(raw_data_filename):
             logger.info(f"Using cached data: {raw_data_filename}")
             scraping_status[status_key]['progress'] = 50
             scraping_status[status_key]['message'] = 'Using cached data, starting analysis...'
         else:
-            # Scrape data
+           
             logger.info("Raw data not found or expired. Starting Apify scraper...")
             scraping_status[status_key]['message'] = 'Scraping Google Maps...'
             
@@ -132,8 +132,12 @@ def results(dish: str, city: str):
     
     status_key = f"{dish}_{city}"
     
+    # First check if results file exists
     if ranked_csv_filename.exists():
         logger.info(f"Results found for {dish} in {city}")
+        # Clear status to prevent re-triggering
+        if status_key in scraping_status:
+            del scraping_status[status_key]
         try:
             df = pd.read_csv(ranked_csv_filename)
             places = df.to_dict(orient='records')
@@ -141,15 +145,20 @@ def results(dish: str, city: str):
         except Exception as e:
             logger.error(f"Error reading results: {e}")
             return render_template('index.html', error='Error loading results'), 500
-    else:
-        logger.info(f"Starting background pipeline for {dish} in {city}")
-        
-        # Check if already scraping
-        if status_key not in scraping_status or scraping_status[status_key]['status'] not in ['scraping', 'analyzing']:
-            thread = threading.Thread(target=run_pipeline_in_background, args=(dish, city), daemon=True)
-            thread.start()
-        
+    
+    # Check if currently processing
+    current_status = scraping_status.get(status_key, {})
+    if current_status.get('status') in ['scraping', 'analyzing']:
+        # Already processing, just return loading page
+        logger.info(f"Pipeline already running for {dish} in {city}")
         return render_template('index.html', loading=True, dish=dish, city=city, status_key=status_key)
+    
+    # Start new pipeline only if not already running
+    logger.info(f"Starting background pipeline for {dish} in {city}")
+    thread = threading.Thread(target=run_pipeline_in_background, args=(dish, city), daemon=True)
+    thread.start()
+    
+    return render_template('index.html', loading=True, dish=dish, city=city, status_key=status_key)
 
 
 @app.route('/health')
@@ -170,3 +179,8 @@ def internal_error(error):
     logger.error(f"Internal server error: {error}")
     return render_template('index.html', error='Internal server error'), 500 
 
+
+if __name__ == '__main__':
+    logger.info("Starting FoodRank application...")
+    logger.info("Opening http://localhost:5000 in your browser...")
+    app.run(debug=FLASK_DEBUG, use_reloader=False, port=5000)

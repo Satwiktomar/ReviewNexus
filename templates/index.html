@@ -172,8 +172,12 @@
     <script>
         const statusKey = "{{ status_key }}";
         const pollInterval = 2000; // Poll every 2 seconds
+        let pollId = null;
+        let isProcessing = true;
 
         async function updateProgress() {
+            if (!isProcessing) return; // Stop polling if not processing
+            
             try {
                 const response = await fetch(`/status/{{ dish }}/{{ city }}`);
                 const data = await response.json();
@@ -193,12 +197,17 @@
                     statusMessage.textContent = data.message || 'Processing...';
                 }
                 
-                // Refresh page when complete
+                // Redirect to results page when complete (don't reload, redirect instead)
                 if (data.status === 'completed') {
-                    setTimeout(() => location.reload(), 1000);
+                    isProcessing = false; // Stop polling
+                    if (pollId) clearInterval(pollId);
+                    // Use location.href instead of location.reload() to ensure fresh page load
+                    window.location.href = `/results/{{ dish }}/{{ city }}`;
                 } else if (data.status === 'error') {
+                    isProcessing = false; // Stop polling
+                    if (pollId) clearInterval(pollId);
                     statusMessage.innerHTML = '❌ ' + data.message;
-                    progressBar.style.backgroundColor = '#ef4444';
+                    if (progressBar) progressBar.style.backgroundColor = '#ef4444';
                 }
             } catch (error) {
                 console.error('Error fetching status:', error);
@@ -207,10 +216,13 @@
 
         // Poll status initially and then every pollInterval
         updateProgress();
-        const pollId = setInterval(updateProgress, pollInterval);
+        pollId = setInterval(updateProgress, pollInterval);
         
         // Stop polling on page unload
-        window.addEventListener('beforeunload', () => clearInterval(pollId));
+        window.addEventListener('beforeunload', () => {
+            isProcessing = false;
+            if (pollId) clearInterval(pollId);
+        });
     </script>
     {% endif %}
 
