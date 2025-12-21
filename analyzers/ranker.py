@@ -1,18 +1,21 @@
 
 import json
 import math
+from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .sentiment_analyzer import get_sentiment_for_reviews 
+from config.settings import DATA_DIR
 
 def _process_place(place):
     """Process a single place (used for parallel processing)."""
-    title = place.get('title', 'N/A')
-    avg_rating = place.get('totalScore', 0)
-    review_count = place.get('reviewsCount', 0)
-    category = place.get('categoryName', 'N/A')
+    # Handle both old and new data formats
+    title = place.get('name') or place.get('title', 'N/A')
+    avg_rating = place.get('rating') or place.get('totalScore', 0)
+    review_count = place.get('review_count') or place.get('reviewsCount', 0)
+    category = place.get('category') or place.get('categoryName', 'N/A')
     address = place.get('address', 'N/A')
     reviews_list = place.get('reviews', [])
     
@@ -89,7 +92,7 @@ def analyze_and_rank(data_filename: str, dish: str, city: str):
         df = pd.DataFrame(ranked_list)
         clean_dish = dish.replace(" ", "_")
         clean_city = city.replace(" ", "_")
-        csv_filename = f'ranked_{clean_dish}_{clean_city}.csv'
+        csv_filename = DATA_DIR / f'ranked_{clean_dish}_{clean_city}.csv'
         df.to_csv(csv_filename, index=False, encoding='utf-8')
         print(f"\n Successfully saved detailed ranked results to '{csv_filename}'")
     except Exception as e:
