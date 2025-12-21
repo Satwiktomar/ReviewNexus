@@ -12,92 +12,207 @@
         {% endif %}
     </title>
     
-    {% if loading %}
-    <meta http-equiv="refresh" content="20">
-    {% endif %}
-    
     <script src="https://cdn.tailwindcss.com"></script>
-   
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
+        .progress-bar { transition: width 0.3s ease; }
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(6, 182, 212, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+        }
+        .pulse-ring { animation: pulse-ring 2s infinite; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800">
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 text-slate-800">
 
     <div class="container mx-auto px-4 py-8">
-        <header class="text-center mb-8">
-            <h1 class="text-4xl md:text-5xl font-bold text-slate-900">🍜 Food Ranker</h1>
-            <p class="text-lg text-slate-600 mt-2">Find the truly best food, ranked by data and AI.</p>
+        <!-- Header -->
+        <header class="text-center mb-12">
+            <h1 class="text-5xl md:text-6xl font-bold text-slate-900">🍜 Food Ranker</h1>
+            <p class="text-lg text-slate-600 mt-3">Find the truly best food, ranked by data and AI.</p>
         </header>
 
+        <!-- Error Messages -->
+        {% if error %}
+        <div class="max-w-2xl mx-auto mb-8 p-4 bg-red-50 border-l-4 border-red-500 rounded-md">
+            <p class="text-red-700 font-medium">❌ {{ error }}</p>
+        </div>
+        {% endif %}
+
         <!-- Search Form Section -->
-        <section class="max-w-2xl mx-auto bg-white p-6 rounded-lg shadow-md mb-12">
-            <form action="/" method="POST" class="flex flex-col md:flex-row gap-4">
-                <input type="text" name="dish" placeholder="e.g., Dosa, Pizza, Biryani" class="w-full px-4 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-cyan-500 focus:outline-none" required>
-                <input type="text" name="city" placeholder="e.g., Bengaluru, Mumbai" class="w-full px-4 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-cyan-500 focus:outline-none" required>
-                <button type="submit" class="bg-cyan-600 text-white font-semibold px-6 py-2 rounded-md hover:bg-cyan-700 transition-colors w-full md:w-auto">
-                    Search
+        <section class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-lg mb-12 border border-slate-200">
+            <form action="/" method="POST" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">What are you craving?</label>
+                        <input type="text" name="dish" placeholder="e.g., Dosa, Pizza, Biryani" 
+                               class="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent outline-none transition" 
+                               required autofocus>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Which city?</label>
+                        <input type="text" name="city" placeholder="e.g., Bengaluru, Mumbai" 
+                               class="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent outline-none transition" 
+                               required>
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold px-6 py-3 rounded-lg hover:shadow-lg transition-all transform hover:scale-105">
+                    🔍 Find Best Restaurants
                 </button>
             </form>
         </section>
 
-       
+        <!-- Loading Section -->
         {% if loading %}
-        <section id="loading" class="text-center p-8 bg-white rounded-lg shadow-md">
-            <h2 class="text-2xl font-semibold text-slate-800">Analyzing Data...</h2>
-            <p class="text-slate-500 mt-2">This may take a few minutes. Your results for <span class="font-semibold">{{ dish }}</span> in <span class="font-semibold">{{ city }}</span> are being scraped and analyzed.</p>
-            <p class="text-slate-500">This page will automatically refresh.</p>
-            <div class="flex justify-center items-center mt-6">
+        <section class="max-w-2xl mx-auto bg-white p-12 rounded-xl shadow-xl border border-slate-200">
+            <div class="text-center space-y-6">
+                <div class="flex justify-center">
+                    <div class="w-16 h-16 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-full pulse-ring"></div>
+                </div>
+                <h2 class="text-3xl font-bold text-slate-800">Analyzing Data...</h2>
+                <p class="text-slate-600">Finding the best <span class="font-semibold text-cyan-600">{{ dish }}</span> in <span class="font-semibold text-cyan-600">{{ city }}</span></p>
                 
-                <svg class="animate-spin h-8 w-8 text-cyan-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                <!-- Progress Bar -->
+                <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-600">Progress</span>
+                        <span class="font-semibold text-cyan-600" id="progress-text">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2">
+                        <div class="progress-bar bg-gradient-to-r from-cyan-600 to-blue-600 h-2 rounded-full" style="width: 0%" id="progress-bar"></div>
+                    </div>
+                </div>
+                
+                <!-- Status Message -->
+                <div class="text-slate-500 text-sm italic" id="status-message">
+                    Scraping Google Maps reviews...
+                </div>
+                
+                <p class="text-slate-500 text-sm">This may take a few minutes on first search. Subsequent searches are cached.</p>
             </div>
         </section>
-        
-       
+
+        <!-- Results Section -->
         {% elif places %}
-        <section id="results" class="overflow-x-auto bg-white rounded-lg shadow-xl">
-             <h2 class="text-2xl font-semibold text-slate-800 p-6">Results for <span class="font-semibold text-cyan-600">{{ dish | title }}</span> in <span class="font-semibold text-cyan-600">{{ city | title }}</span></h2>
-            <table class="w-full text-sm text-left text-gray-500">
-                <thead class="text-xs text-gray-700 uppercase bg-gray-50">
-                    <tr>
-                        <th scope="col" class="px-6 py-3">Rank</th>
-                        <th scope="col" class="px-6 py-3">Restaurant</th>
-                        <th scope="col" class="px-6 py-3 text-center">Avg Rating ⭐</th>
-                        <th scope="col" class="px-6 py-3 text-center">Reviews 📝</th>
-                        <th scope="col" class="px-6 py-3 text-center">Sentiment 😊</th>
-                        <th scope="col" class="px-6 py-3 text-center">Final Score 🏆</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    
-                    {% for place in places %}
-                    <tr class="bg-white border-b hover:bg-slate-50">
-                        <td class="px-6 py-4 font-bold text-lg text-slate-700">{{ loop.index }}</td>
-                        <td class="px-6 py-4">
-                            <a href="{{ place.url }}" target="_blank" class="font-semibold text-slate-900 hover:text-cyan-600 transition-colors">
-                                {{ place.name }}
-                            </a>
-                            <p class="text-xs text-slate-500">{{ place.address }}</p>
-                        </td>
-                        <td class="px-6 py-4 text-center">{{ place.avg_rating }}</td>
-                        <td class="px-6 py-4 text-center">{{ place.reviews }}</td>
-                      
-                        <td class="px-6 py-4 text-center font-medium {% if place.sentiment|float >= 0.1 %}text-green-600{% elif place.sentiment|float <= -0.1 %}text-red-600{% else %}text-slate-600{% endif %}">
-                            {{ place.sentiment }}
-                        </td>
-                        <td class="px-6 py-4 text-center font-bold text-lg text-cyan-700">{{ place.score }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <section class="bg-white rounded-xl shadow-xl overflow-hidden border border-slate-200">
+            <div class="bg-gradient-to-r from-cyan-600 to-blue-600 px-8 py-6">
+                <h2 class="text-3xl font-bold text-white">
+                    ✨ Best {{ dish | title }} in {{ city | title }}
+                </h2>
+                <p class="text-cyan-100 mt-1">{{ places | length }} restaurants ranked by reviews and ratings</p>
+                {% if cached %}
+                <p class="text-cyan-100 text-sm mt-2">📦 Cached results (last updated within 24 hours)</p>
+                {% endif %}
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                            <th class="px-6 py-4 text-left font-semibold text-slate-700">Rank</th>
+                            <th class="px-6 py-4 text-left font-semibold text-slate-700">Restaurant</th>
+                            <th class="px-6 py-4 text-center font-semibold text-slate-700">Rating ⭐</th>
+                            <th class="px-6 py-4 text-center font-semibold text-slate-700">Reviews 📝</th>
+                            <th class="px-6 py-4 text-center font-semibold text-slate-700">Sentiment 😊</th>
+                            <th class="px-6 py-4 text-center font-semibold text-slate-700">Score 🏆</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200">
+                        {% for place in places %}
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4">
+                                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold text-sm">
+                                    {{ loop.index }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4">
+                                <a href="{{ place.url }}" target="_blank" class="font-semibold text-slate-900 hover:text-cyan-600 transition-colors">
+                                    {{ place.name }}
+                                </a>
+                                <p class="text-xs text-slate-500 mt-1">{{ place.address or 'Address not available' }}</p>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-block bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full font-semibold">
+                                    {{ place.avg_rating or 'N/A' }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center font-medium text-slate-700">
+                                {{ place.reviews or 0 }}
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-block px-3 py-1 rounded-full font-semibold {% if place.sentiment|float >= 0.5 %}bg-green-50 text-green-700{% elif place.sentiment|float <= -0.3 %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %}">
+                                    {{ place.sentiment or 'N/A' }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-block bg-gradient-to-r from-cyan-600 to-blue-600 text-white px-4 py-2 rounded-lg font-bold">
+                                    {{ place.score or 'N/A' }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </section>
+
+        <!-- New Search Button -->
+        <div class="text-center mt-8">
+            <a href="/" class="inline-block bg-slate-800 hover:bg-slate-900 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
+                🔄 New Search
+            </a>
+        </div>
         {% endif %}
     </div>
 
+    <!-- Progress Update Script -->
+    {% if loading %}
+    <script>
+        const statusKey = "{{ status_key }}";
+        const pollInterval = 2000; // Poll every 2 seconds
+
+        async function updateProgress() {
+            try {
+                const response = await fetch(`/status/{{ dish }}/{{ city }}`);
+                const data = await response.json();
+                
+                // Update progress bar
+                const progressBar = document.getElementById('progress-bar');
+                const progressText = document.getElementById('progress-text');
+                const statusMessage = document.getElementById('status-message');
+                
+                if (progressBar) {
+                    progressBar.style.width = data.progress + '%';
+                }
+                if (progressText) {
+                    progressText.textContent = data.progress + '%';
+                }
+                if (statusMessage) {
+                    statusMessage.textContent = data.message || 'Processing...';
+                }
+                
+                // Refresh page when complete
+                if (data.status === 'completed') {
+                    setTimeout(() => location.reload(), 1000);
+                } else if (data.status === 'error') {
+                    statusMessage.innerHTML = '❌ ' + data.message;
+                    progressBar.style.backgroundColor = '#ef4444';
+                }
+            } catch (error) {
+                console.error('Error fetching status:', error);
+            }
+        }
+
+        // Poll status initially and then every pollInterval
+        updateProgress();
+        const pollId = setInterval(updateProgress, pollInterval);
+        
+        // Stop polling on page unload
+        window.addEventListener('beforeunload', () => clearInterval(pollId));
+    </script>
+    {% endif %}
+
 </body>
 </html>
-
