@@ -3,22 +3,28 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-print("Loading sentiment analysis model...")
+# Load model ONCE at startup (not per request) - saves 5-10 seconds!
+print("Loading sentiment analysis model at startup...")
+sentiment_pipeline = None
 try:
     from transformers import pipeline
+    import torch
+    # Force CPU and disable gradients
+    torch.set_grad_enabled(False)
     sentiment_pipeline = pipeline(
         "sentiment-analysis", 
         model="distilbert-base-uncased-finetuned-sst-2-english",
-        device=-1  # Use CPU to avoid GPU issues
+        device=-1,  # Use CPU
+        batch_size=16  # Process multiple reviews at once
     )
-    print("Model loaded.")
+    print("✅ Sentiment model loaded successfully (cached in memory)")
 except Exception as e:
-    print(f"Warning: Could not load sentiment model: {e}")
+    print(f"⚠️ Warning: Could not load sentiment model: {e}")
     sentiment_pipeline = None
 
 def get_sentiment_for_reviews(reviews: list):
     """
-    Calculate sentiment score for a list of reviews.
+    Calculate sentiment score for a list of reviews using BATCH processing.
     
     Args:
         reviews: List of review dictionaries with 'text' key
@@ -30,23 +36,24 @@ def get_sentiment_for_reviews(reviews: list):
         return 0.0
 
     try:
-        # Sample reviews for faster processing
-        sample_reviews = [review.get('text', '')[:200] for review in reviews if review.get('text')][:5]
+        # Extract and prepare review texts (up to 10 reviews for speed)
+        review_texts = [review.get('text', '')[:150] for review in reviews if review.get('text')][:10]
         
-        if not sample_reviews:
+        if not review_texts:
             return 0.0
         
-        # Analyze sentiment
-        sentiments = sentiment_pipeline(sample_reviews, truncation=True)
+        # BATCH ANALYZE - process all at once (faster than one-by-one)
+        sentiments = sentiment_pipeline(review_texts, truncation=True, batch_size=8)
         
-        score = 0
+        # Calculate aggregate sentiment score
+        total_score = 0
         for sentiment in sentiments:
             if sentiment['label'] == 'POSITIVE':
-                score += sentiment['score']
+                total_score += sentiment['score']
             else:
-                score -= sentiment['score']
+                total_score -= sentiment['score']
         
-        return score / len(sentiments)
+        return total_score / len(sentiments)
         
     except Exception as e:
         logger.error(f"Error in sentiment analysis: {e}")

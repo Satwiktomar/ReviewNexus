@@ -90,10 +90,16 @@ def run_pipeline_in_background(dish: str, city: str):
             city=city
         )
         
-        scraping_status[status_key]['status'] = 'completed'
-        scraping_status[status_key]['progress'] = 100
-        scraping_status[status_key]['message'] = 'Completed!'
-        logger.info(f"Pipeline finished. Results saved to {ranked_csv_filename}")
+        # Verify the CSV file was created before marking as complete
+        if ranked_csv_filename.exists():
+            scraping_status[status_key]['status'] = 'completed'
+            scraping_status[status_key]['progress'] = 100
+            scraping_status[status_key]['message'] = 'Completed!'
+            logger.info(f"Pipeline finished. Results saved to {ranked_csv_filename}")
+        else:
+            scraping_status[status_key]['status'] = 'error'
+            scraping_status[status_key]['message'] = 'Results file was not created'
+            logger.error(f"Results file not found after analysis: {ranked_csv_filename}")
         
     except Exception as e:
         logger.error(f"Pipeline error: {e}")

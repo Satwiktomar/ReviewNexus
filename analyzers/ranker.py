@@ -4,12 +4,33 @@ import math
 from rich.console import Console
 from rich.table import Table
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .sentiment_analyzer import get_sentiment_for_reviews 
 
+def _process_place(place):
+    """Process a single place (used for parallel processing)."""
+    title = place.get('title', 'N/A')
+    avg_rating = place.get('totalScore', 0)
+    review_count = place.get('reviewsCount', 0)
+    category = place.get('categoryName', 'N/A')
+    address = place.get('address', 'N/A')
+    reviews_list = place.get('reviews', [])
+    
+    # Run sentiment analysis (most expensive operation - parallelize this!)
+    sentiment_score = get_sentiment_for_reviews(reviews_list)
+    
+    base_score = 0
+    if review_count > 0:
+        base_score = avg_rating * math.log10(review_count + 1)
+    final_score = base_score * (1 + sentiment_score)
+    
+    return {
+        "name": title, "category": category, "avg_rating": avg_rating,
+        "reviews": review_count, "sentiment": f"{sentiment_score:.2f}",
+        "score": round(final_score, 2), "address": address
+    }
+
 def analyze_and_rank(data_filename: str, dish: str, city: str):
-    
-   
-    
     try:
         with open(data_filename, 'r', encoding='utf-8') as f:
             places = json.load(f)
@@ -22,28 +43,22 @@ def analyze_and_rank(data_filename: str, dish: str, city: str):
         return
 
     print(f"Analyzing {len(places)} places for '{dish}' in '{city}'...")
+    
+    # PARALLEL PROCESSING - process multiple places simultaneously
     ranked_list = []
-    for i, place in enumerate(places):
-        print(f"  -> Processing item {i+1}/{len(places)}: {place.get('title', 'N/A')}")
-
-      
-        title = place.get('title', 'N/A')
-        avg_rating = place.get('totalScore', 0)
-        review_count = place.get('reviewsCount', 0)
-        category = place.get('categoryName', 'N/A')
-        address = place.get('address', 'N/A')
-        reviews_list = place.get('reviews', [])
-        sentiment_score = get_sentiment_for_reviews(reviews_list)
-        base_score = 0
-        if review_count > 0:
-            base_score = avg_rating * math.log10(review_count + 1)
-        final_score = base_score * (1 + sentiment_score)
+    max_workers = min(4, len(places))  # Use up to 4 threads
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_process_place, place): i for i, place in enumerate(places)}
         
-        ranked_list.append({
-            "name": title, "category": category, "avg_rating": avg_rating,
-            "reviews": review_count, "sentiment": f"{sentiment_score:.2f}",
-            "score": round(final_score, 2), "address": address
-        })
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                result = future.result()
+                ranked_list.append(result)
+                print(f"  -> Processed {len(ranked_list)}/{len(places)}: {result['name']}")
+            except Exception as e:
+                print(f"  ❌ Error processing place {idx}: {e}")
 
     ranked_list.sort(key=lambda x: x['score'], reverse=True)
 
