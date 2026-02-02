@@ -50,7 +50,7 @@ def is_cache_valid(filepath: Path) -> bool:
     file_age = datetime.now() - datetime.fromtimestamp(filepath.stat().st_mtime)
     return file_age < timedelta(hours=CACHE_EXPIRY_HOURS)
 
-def run_pipeline_in_background(dish: str, city: str):
+def run_pipeline_in_background(dish: str, city: str, max_places: int = 15):
     status_key = f"{dish}_{city}"
     
     with status_lock:
@@ -86,7 +86,7 @@ def run_pipeline_in_background(dish: str, city: str):
                 scraped_items = scrape_google_maps_reviews_sync(
                     search_terms=[f"best {dish} in {city}"],
                     location=f"{city}, India",
-                    max_places=MAX_PLACES,
+                    max_places=max_places,
                     max_reviews=MAX_REVIEWS_PER_PLACE
                 )
                 
@@ -123,21 +123,24 @@ def run_pipeline_in_background(dish: str, city: str):
         
         if ranked_csv_filename.exists():
             with status_lock:
-                scraping_status[status_key]['status'] = 'completed'
-                scraping_status[status_key]['progress'] = 100
-                scraping_status[status_key]['message'] = 'Completed!'
+                if status_key in scraping_status:
+                    scraping_status[status_key]['status'] = 'completed'
+                    scraping_status[status_key]['progress'] = 100
+                    scraping_status[status_key]['message'] = 'Completed!'
             logger.info(f"Pipeline finished. Results saved to {ranked_csv_filename}")
         else:
             with status_lock:
-                scraping_status[status_key]['status'] = 'error'
-                scraping_status[status_key]['message'] = 'Results file was not created'
+                if status_key in scraping_status:
+                    scraping_status[status_key]['status'] = 'error'
+                    scraping_status[status_key]['message'] = 'Results file was not created'
             logger.error(f"Results file not found after analysis: {ranked_csv_filename}")
         
     except Exception as e:
         logger.error(f"Pipeline error: {e}")
         with status_lock:
-            scraping_status[status_key]['status'] = 'error'
-            scraping_status[status_key]['message'] = f'Error: {str(e)}'
+            if status_key in scraping_status:
+                scraping_status[status_key]['status'] = 'error'
+                scraping_status[status_key]['message'] = f'Error: {str(e)}'
 
 @app.after_request
 def add_security_headers(response):
@@ -150,16 +153,35 @@ def add_security_headers(response):
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
+        dish = request.form.get('dish', '').strip()
+        city = request.form.get('city', '').strip()
+        max_places_str = request.form.get('max_places', '15').strip()
+        
         try:
-            dish = request.form.get('dish', '').strip()
-            city = request.form.get('city', '').strip()
-            
             dish, city = validate_search_params(dish, city)
-            
-            logger.info(f"User search: {dish} in {city}")
-            return redirect(url_for('results', dish=dish, city=city))
+            max_places = int(max_places_str)
+            max_places = max(5, min(max_places, 20))
         except ValueError as e:
             return render_template('index.html', error=str(e)), 400
+        
+        logger.info(f"User search: {dish} in {city} (max {max_places} places)")
+        
+        status_key = f"{dish}_{city}"
+        with status_lock:
+            current_status = scraping_status.get(status_key, {})
+        
+        if current_status.get('status') in ['completed', 'error'] or status_key not in scraping_status:
+            logger.info(f"Starting background pipeline for {dish} in {city}")
+            thread = threading.Thread(
+                target=run_pipeline_in_background,
+                args=(dish, city, max_places),
+                daemon=True
+            )
+            thread.start()
+            return redirect(url_for('results', dish=dish, city=city))
+        else:
+            logger.info(f"Pipeline already running for {dish} in {city}. Redirecting to results.")
+            return redirect(url_for('results', dish=dish, city=city))
     
     return render_template('index.html')
 

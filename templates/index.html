@@ -1,71 +1,92 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
+
     <title>
         {% if dish and city %}
-            {{ dish | title }} in {{ city | title }} - FoodRank
+        {{ dish | title }} in {{ city | title }} - FoodRank
         {% else %}
-            FoodRank - AI-Powered Restaurant Discovery
+        FoodRank - AI-Powered Restaurant Discovery
         {% endif %}
     </title>
-    
+
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
     {% if places %}
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8"></script>
     {% endif %}
-    
+
     <style>
-        body { font-family: 'Poppins', sans-serif; }
-        .progress-bar { transition: width 0.3s ease; }
-        @keyframes pulse-ring {
-            0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
-            70% { box-shadow: 0 0 0 15px rgba(99, 102, 241, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+        body {
+            font-family: 'Poppins', sans-serif;
         }
-        .pulse-ring { animation: pulse-ring 2s infinite; }
-        
+
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+
+        @keyframes pulse-ring {
+            0% {
+                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7);
+            }
+
+            70% {
+                box-shadow: 0 0 0 15px rgba(99, 102, 241, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+            }
+        }
+
+        .pulse-ring {
+            animation: pulse-ring 2s infinite;
+        }
+
         #map {
             width: 100%;
             height: 500px;
             border-radius: 16px;
         }
-        
+
         .glow-card {
             box-shadow: 0 10px 40px rgba(99, 102, 241, 0.1);
             transition: all 0.3s ease;
         }
-        
+
         .glow-card:hover {
             box-shadow: 0 20px 60px rgba(99, 102, 241, 0.2);
             transform: translateY(-2px);
         }
-        
+
         .gradient-text {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
-        
+
         .rank-badge {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        
+
         tr:hover {
             background: linear-gradient(90deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%);
         }
     </style>
 </head>
+
 <body class="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 min-h-screen">
 
     <div class="container mx-auto px-4 py-8 max-w-7xl">
         <header class="text-center mb-12">
             <h1 class="text-6xl md:text-7xl font-extrabold gradient-text mb-4">🍜 FoodRank</h1>
-            <p class="text-xl text-slate-600 font-medium">Discover the best restaurants powered by AI sentiment analysis</p>
+            <p class="text-xl text-slate-600 font-medium">Discover the best restaurants powered by AI sentiment analysis
+            </p>
         </header>
 
         {% if error %}
@@ -74,52 +95,68 @@
         </div>
         {% endif %}
 
-        <section class="max-w-3xl mx-auto bg-white/80 backdrop-blur-lg p-10 rounded-2xl shadow-2xl mb-12 border border-indigo-100 glow-card">
+        <section
+            class="max-w-3xl mx-auto bg-white/80 backdrop-blur-lg p-10 rounded-2xl shadow-2xl mb-12 border border-indigo-100 glow-card">
             <form action="/" method="POST" class="space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label class="block text-sm font-semibold text-slate-700 mb-3">What are you craving?</label>
-                        <input type="text" name="dish" placeholder="e.g., Dosa, Pizza, Biryani" 
-                               class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium" 
-                               required autofocus>
+                        <input type="text" name="dish" placeholder="e.g., Dosa, Pizza, Biryani"
+                            class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium"
+                            required autofocus>
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-slate-700 mb-3">Which city?</label>
-                        <input type="text" name="city" placeholder="e.g., Delhi, Mumbai, Bengaluru" 
-                               class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium" 
-                               required>
+                        <input type="text" name="city" placeholder="e.g., Delhi, Mumbai, Bengaluru"
+                            class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium"
+                            required>
                     </div>
                 </div>
-                <button type="submit" class="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white font-bold px-8 py-5 rounded-xl hover:shadow-2xl transition-all transform hover:scale-105 text-lg">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-3">📊 How many restaurants?</label>
+                    <select name="max_places"
+                        class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium bg-white">
+                        <option value="5">5 Restaurants</option>
+                        <option value="10">10 Restaurants</option>
+                        <option value="15" selected>15 Restaurants (Recommended)</option>
+                        <option value="20">20 Restaurants</option>
+                    </select>
+                </div>
+                <button type="submit"
+                    class="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white font-bold px-8 py-5 rounded-xl hover:shadow-2xl transition-all transform hover:scale-105 text-lg">
                     🔍 Find Best Restaurants
                 </button>
             </form>
         </section>
 
         {% if loading %}
-        <section class="max-w-2xl mx-auto bg-white/80 backdrop-blur-lg p-14 rounded-2xl shadow-2xl border border-indigo-100">
+        <section
+            class="max-w-2xl mx-auto bg-white/80 backdrop-blur-lg p-14 rounded-2xl shadow-2xl border border-indigo-100">
             <div class="text-center space-y-8">
                 <div class="flex justify-center">
                     <div class="w-20 h-20 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full pulse-ring"></div>
                 </div>
                 <h2 class="text-4xl font-bold text-slate-800">Analyzing Data...</h2>
-                <p class="text-slate-600 text-lg">Finding the best <span class="font-bold text-indigo-600">{{ dish }}</span> in <span class="font-bold text-indigo-600">{{ city }}</span></p>
-                
+                <p class="text-slate-600 text-lg">Finding the best <span class="font-bold text-indigo-600">{{ dish
+                        }}</span> in <span class="font-bold text-indigo-600">{{ city }}</span></p>
+
                 <div class="space-y-3">
                     <div class="flex justify-between text-sm font-medium">
                         <span class="text-slate-600">Progress</span>
                         <span class="font-bold text-indigo-600" id="progress-text">0%</span>
                     </div>
                     <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
-                        <div class="progress-bar bg-gradient-to-r from-indigo-600 to-purple-600 h-3 rounded-full" style="width: 0%" id="progress-bar"></div>
+                        <div class="progress-bar bg-gradient-to-r from-indigo-600 to-purple-600 h-3 rounded-full"
+                            style="width: 0%" id="progress-bar"></div>
                     </div>
                 </div>
-                
+
                 <div class="text-slate-500 text-sm italic font-medium" id="status-message">
                     Scraping Google Maps reviews...
                 </div>
-                
-                <p class="text-slate-500 text-sm">This may take a moment. Results are cached for instant future searches.</p>
+
+                <p class="text-slate-500 text-sm">This may take a moment. Results are cached for instant future
+                    searches.</p>
             </div>
         </section>
 
@@ -129,7 +166,8 @@
                 <h2 class="text-4xl font-extrabold text-white mb-2">
                     ✨ Best {{ dish | title }} in {{ city | title }}
                 </h2>
-                <p class="text-indigo-100 text-lg font-medium">{{ places | length }} restaurants ranked by ratings and AI sentiment analysis</p>
+                <p class="text-indigo-100 text-lg font-medium">{{ places | length }} restaurants ranked by ratings and
+                    AI sentiment analysis</p>
                 {% if cached %}
                 <p class="text-indigo-100 text-sm mt-2 font-medium">📦 Cached results</p>
                 {% endif %}
@@ -141,20 +179,28 @@
                 <table class="w-full">
                     <thead class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
                         <tr>
-                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">Rank</th>
-                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">Restaurant</th>
-                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">Location</th>
-                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">Rating ⭐</th>
-                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">Reviews 📝</th>
-                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">Sentiment 💭</th>
-                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">Score 🏆</th>
+                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">
+                                Rank</th>
+                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">
+                                Restaurant</th>
+                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">
+                                Location</th>
+                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">
+                                Rating ⭐</th>
+                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">
+                                Reviews 📝</th>
+                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">
+                                Sentiment 💭</th>
+                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">
+                                Score 🏆</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-indigo-100">
                         {% for place in places %}
                         <tr class="transition-all cursor-pointer" onclick="highlightMarker({{ loop.index0 }})">
                             <td class="px-6 py-5">
-                                <span class="inline-flex items-center justify-center w-10 h-10 rounded-full rank-badge text-white font-extrabold text-base shadow-lg">
+                                <span
+                                    class="inline-flex items-center justify-center w-10 h-10 rounded-full rank-badge text-white font-extrabold text-base shadow-lg">
                                     {{ loop.index }}
                                 </span>
                             </td>
@@ -163,15 +209,21 @@
                                 <div class="text-sm text-slate-500 font-medium">{{ place.category }}</div>
                             </td>
                             <td class="px-6 py-5">
-                                <a href="{{ place.url }}" target="_blank" class="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-800 font-semibold transition-colors group">
-                                    <span>{{ place.address[:40] }}{% if place.address|length > 40 %}...{% endif %}</span>
-                                    <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                <a href="{{ place.url }}" target="_blank"
+                                    class="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-800 font-semibold transition-colors group">
+                                    <span>{{ place.address[:40] }}{% if place.address|length > 40 %}...{% endif
+                                        %}</span>
+                                    <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none"
+                                        stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14">
+                                        </path>
                                     </svg>
                                 </a>
                             </td>
                             <td class="px-6 py-5 text-center">
-                                <span class="inline-block bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg font-bold text-base shadow">
+                                <span
+                                    class="inline-block bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg font-bold text-base shadow">
                                     {{ place.avg_rating }}
                                 </span>
                             </td>
@@ -180,12 +232,14 @@
                             </td>
                             <td class="px-6 py-5 text-center">
                                 {% set sentiment = place.sentiment|float %}
-                                <span class="inline-block px-4 py-2 rounded-lg font-bold text-base shadow {% if sentiment >= 0.5 %}bg-green-100 text-green-800{% elif sentiment <= -0.3 %}bg-red-100 text-red-800{% else %}bg-amber-100 text-amber-800{% endif %}">
+                                <span
+                                    class="inline-block px-4 py-2 rounded-lg font-bold text-base shadow {% if sentiment >= 0.5 %}bg-green-100 text-green-800{% elif sentiment <= -0.3 %}bg-red-100 text-red-800{% else %}bg-amber-100 text-amber-800{% endif %}">
                                     {{ place.sentiment }}
                                 </span>
                             </td>
                             <td class="px-6 py-5 text-center">
-                                <span class="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2 rounded-lg font-extrabold text-lg shadow-lg">
+                                <span
+                                    class="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2 rounded-lg font-extrabold text-lg shadow-lg">
                                     {{ place.score }}
                                 </span>
                             </td>
@@ -197,7 +251,8 @@
         </div>
 
         <div class="text-center mt-10">
-            <a href="/" class="inline-block bg-gradient-to-r from-slate-700 to-slate-900 hover:from-slate-800 hover:to-black text-white font-bold px-10 py-4 rounded-xl transition-all transform hover:scale-105 shadow-xl text-lg">
+            <a href="/"
+                class="inline-block bg-gradient-to-r from-slate-700 to-slate-900 hover:from-slate-800 hover:to-black text-white font-bold px-10 py-4 rounded-xl transition-all transform hover:scale-105 shadow-xl text-lg">
                 🔄 New Search
             </a>
         </div>
@@ -213,15 +268,15 @@
 
         async function updateProgress() {
             if (!isProcessing) return;
-            
+
             try {
                 const response = await fetch(`/status/{{ dish }}/{{ city }}`);
                 const data = await response.json();
-                
+
                 const progressBar = document.getElementById('progress-bar');
                 const progressText = document.getElementById('progress-text');
                 const statusMessage = document.getElementById('status-message');
-                
+
                 if (progressBar) {
                     progressBar.style.width = data.progress + '%';
                 }
@@ -231,7 +286,7 @@
                 if (statusMessage) {
                     statusMessage.textContent = data.message || 'Processing...';
                 }
-                
+
                 if (data.status === 'completed') {
                     isProcessing = false;
                     if (pollId) clearInterval(pollId);
@@ -249,7 +304,7 @@
 
         updateProgress();
         pollId = setInterval(updateProgress, pollInterval);
-        
+
         window.addEventListener('beforeunload', () => {
             isProcessing = false;
             if (pollId) clearInterval(pollId);
@@ -348,4 +403,5 @@
     {% endif %}
 
 </body>
+
 </html>
