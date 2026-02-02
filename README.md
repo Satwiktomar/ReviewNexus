@@ -1,4 +1,4 @@
-# 🍜 FoodRank - AI-Powered Restaurant Discovery
+# 🍜 ReviewNexus - AI-Powered Restaurant Discovery
 
 **Find the best restaurants ranked by real data and AI sentiment analysis**
 
