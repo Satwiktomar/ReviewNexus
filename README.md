@@ -273,12 +273,4 @@ This project is for educational purposes. Web scraping Google Maps may violate t
 
 ---
 
-## 📈 Stats
-
-![GitHub stars](https://img.shields.io/github/stars/yourusername/foodrank?style=social)
-![GitHub forks](https://img.shields.io/github/forks/yourusername/foodrank?style=social)
-![GitHub watchers](https://img.shields.io/github/watchers/yourusername/foodrank?style=social)
-
----
-
-**Made with ❤️ and AI**
+**Made with ❤️**
