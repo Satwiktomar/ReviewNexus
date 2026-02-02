@@ -6,149 +6,187 @@
     
     <title>
         {% if dish and city %}
-            {{ dish | title }} in {{ city | title }} - Food Ranker
+            {{ dish | title }} in {{ city | title }} - FoodRank
         {% else %}
-            Food Ranker
+            FoodRank - AI-Powered Restaurant Discovery
         {% endif %}
     </title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    {% if places %}
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8"></script>
+    {% endif %}
+    
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body { font-family: 'Poppins', sans-serif; }
         .progress-bar { transition: width 0.3s ease; }
         @keyframes pulse-ring {
-            0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(6, 182, 212, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+            0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(99, 102, 241, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
         }
         .pulse-ring { animation: pulse-ring 2s infinite; }
+        
+        #map {
+            width: 100%;
+            height: 500px;
+            border-radius: 16px;
+        }
+        
+        .glow-card {
+            box-shadow: 0 10px 40px rgba(99, 102, 241, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .glow-card:hover {
+            box-shadow: 0 20px 60px rgba(99, 102, 241, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .gradient-text {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .rank-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        tr:hover {
+            background: linear-gradient(90deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%);
+        }
     </style>
 </head>
-<body class="bg-gradient-to-br from-slate-50 to-slate-100 text-slate-800">
+<body class="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 min-h-screen">
 
-    <div class="container mx-auto px-4 py-8">
-        <!-- Header -->
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
         <header class="text-center mb-12">
-            <h1 class="text-5xl md:text-6xl font-bold text-slate-900">🍜 Food Ranker</h1>
-            <p class="text-lg text-slate-600 mt-3">Find the truly best food, ranked by data and AI.</p>
+            <h1 class="text-6xl md:text-7xl font-extrabold gradient-text mb-4">🍜 FoodRank</h1>
+            <p class="text-xl text-slate-600 font-medium">Discover the best restaurants powered by AI sentiment analysis</p>
         </header>
 
-        <!-- Error Messages -->
         {% if error %}
-        <div class="max-w-2xl mx-auto mb-8 p-4 bg-red-50 border-l-4 border-red-500 rounded-md">
-            <p class="text-red-700 font-medium">❌ {{ error }}</p>
+        <div class="max-w-2xl mx-auto mb-8 p-6 bg-red-50 border-l-4 border-red-500 rounded-xl shadow-lg">
+            <p class="text-red-700 font-semibold">❌ {{ error }}</p>
         </div>
         {% endif %}
 
-        <!-- Search Form Section -->
-        <section class="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-lg mb-12 border border-slate-200">
-            <form action="/" method="POST" class="space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <section class="max-w-3xl mx-auto bg-white/80 backdrop-blur-lg p-10 rounded-2xl shadow-2xl mb-12 border border-indigo-100 glow-card">
+            <form action="/" method="POST" class="space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-2">What are you craving?</label>
+                        <label class="block text-sm font-semibold text-slate-700 mb-3">What are you craving?</label>
                         <input type="text" name="dish" placeholder="e.g., Dosa, Pizza, Biryani" 
-                               class="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent outline-none transition" 
+                               class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium" 
                                required autofocus>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-2">Which city?</label>
-                        <input type="text" name="city" placeholder="e.g., Bengaluru, Mumbai" 
-                               class="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent outline-none transition" 
+                        <label class="block text-sm font-semibold text-slate-700 mb-3">Which city?</label>
+                        <input type="text" name="city" placeholder="e.g., Delhi, Mumbai, Bengaluru" 
+                               class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium" 
                                required>
                     </div>
                 </div>
-                <button type="submit" class="w-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold px-6 py-3 rounded-lg hover:shadow-lg transition-all transform hover:scale-105">
+                <button type="submit" class="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white font-bold px-8 py-5 rounded-xl hover:shadow-2xl transition-all transform hover:scale-105 text-lg">
                     🔍 Find Best Restaurants
                 </button>
             </form>
         </section>
 
-        <!-- Loading Section -->
         {% if loading %}
-        <section class="max-w-2xl mx-auto bg-white p-12 rounded-xl shadow-xl border border-slate-200">
-            <div class="text-center space-y-6">
+        <section class="max-w-2xl mx-auto bg-white/80 backdrop-blur-lg p-14 rounded-2xl shadow-2xl border border-indigo-100">
+            <div class="text-center space-y-8">
                 <div class="flex justify-center">
-                    <div class="w-16 h-16 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-full pulse-ring"></div>
+                    <div class="w-20 h-20 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full pulse-ring"></div>
                 </div>
-                <h2 class="text-3xl font-bold text-slate-800">Analyzing Data...</h2>
-                <p class="text-slate-600">Finding the best <span class="font-semibold text-cyan-600">{{ dish }}</span> in <span class="font-semibold text-cyan-600">{{ city }}</span></p>
+                <h2 class="text-4xl font-bold text-slate-800">Analyzing Data...</h2>
+                <p class="text-slate-600 text-lg">Finding the best <span class="font-bold text-indigo-600">{{ dish }}</span> in <span class="font-bold text-indigo-600">{{ city }}</span></p>
                 
-                <!-- Progress Bar -->
-                <div class="space-y-2">
-                    <div class="flex justify-between text-sm">
+                <div class="space-y-3">
+                    <div class="flex justify-between text-sm font-medium">
                         <span class="text-slate-600">Progress</span>
-                        <span class="font-semibold text-cyan-600" id="progress-text">0%</span>
+                        <span class="font-bold text-indigo-600" id="progress-text">0%</span>
                     </div>
-                    <div class="w-full bg-slate-200 rounded-full h-2">
-                        <div class="progress-bar bg-gradient-to-r from-cyan-600 to-blue-600 h-2 rounded-full" style="width: 0%" id="progress-bar"></div>
+                    <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+                        <div class="progress-bar bg-gradient-to-r from-indigo-600 to-purple-600 h-3 rounded-full" style="width: 0%" id="progress-bar"></div>
                     </div>
                 </div>
                 
-                <!-- Status Message -->
-                <div class="text-slate-500 text-sm italic" id="status-message">
+                <div class="text-slate-500 text-sm italic font-medium" id="status-message">
                     Scraping Google Maps reviews...
                 </div>
                 
-                <p class="text-slate-500 text-sm">This may take a few minutes on first search. Subsequent searches are cached.</p>
+                <p class="text-slate-500 text-sm">This may take a moment. Results are cached for instant future searches.</p>
             </div>
         </section>
 
-        <!-- Results Section -->
         {% elif places %}
-        <section class="bg-white rounded-xl shadow-xl overflow-hidden border border-slate-200">
-            <div class="bg-gradient-to-r from-cyan-600 to-blue-600 px-8 py-6">
-                <h2 class="text-3xl font-bold text-white">
+        <div class="bg-white/80 backdrop-blur-lg p-8 rounded-2xl shadow-2xl border border-indigo-100">
+            <div class="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-8 py-8 rounded-xl mb-8">
+                <h2 class="text-4xl font-extrabold text-white mb-2">
                     ✨ Best {{ dish | title }} in {{ city | title }}
                 </h2>
-                <p class="text-cyan-100 mt-1">{{ places | length }} restaurants ranked by reviews and ratings</p>
+                <p class="text-indigo-100 text-lg font-medium">{{ places | length }} restaurants ranked by ratings and AI sentiment analysis</p>
                 {% if cached %}
-                <p class="text-cyan-100 text-sm mt-2">📦 Cached results (last updated within 24 hours)</p>
+                <p class="text-indigo-100 text-sm mt-2 font-medium">📦 Cached results</p>
                 {% endif %}
             </div>
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead class="bg-slate-50 border-b border-slate-200">
+            <div id="map" class="mb-8 shadow-xl border-4 border-indigo-100"></div>
+
+            <div class="overflow-x-auto rounded-xl">
+                <table class="w-full">
+                    <thead class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
                         <tr>
-                            <th class="px-6 py-4 text-left font-semibold text-slate-700">Rank</th>
-                            <th class="px-6 py-4 text-left font-semibold text-slate-700">Restaurant</th>
-                            <th class="px-6 py-4 text-center font-semibold text-slate-700">Rating ⭐</th>
-                            <th class="px-6 py-4 text-center font-semibold text-slate-700">Reviews 📝</th>
-                            <th class="px-6 py-4 text-center font-semibold text-slate-700">Sentiment 😊</th>
-                            <th class="px-6 py-4 text-center font-semibold text-slate-700">Score 🏆</th>
+                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">Rank</th>
+                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">Restaurant</th>
+                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">Location</th>
+                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">Rating ⭐</th>
+                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">Reviews 📝</th>
+                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">Sentiment 💭</th>
+                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">Score 🏆</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-200">
+                    <tbody class="divide-y divide-indigo-100">
                         {% for place in places %}
-                        <tr class="hover:bg-slate-50 transition-colors">
-                            <td class="px-6 py-4">
-                                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold text-sm">
+                        <tr class="transition-all cursor-pointer" onclick="highlightMarker({{ loop.index0 }})">
+                            <td class="px-6 py-5">
+                                <span class="inline-flex items-center justify-center w-10 h-10 rounded-full rank-badge text-white font-extrabold text-base shadow-lg">
                                     {{ loop.index }}
                                 </span>
                             </td>
-                            <td class="px-6 py-4">
-                                <a href="{{ place.url }}" target="_blank" class="font-semibold text-slate-900 hover:text-cyan-600 transition-colors">
-                                    {{ place.name }}
+                            <td class="px-6 py-5">
+                                <div class="font-bold text-slate-900 text-lg mb-1">{{ place.name }}</div>
+                                <div class="text-sm text-slate-500 font-medium">{{ place.category }}</div>
+                            </td>
+                            <td class="px-6 py-5">
+                                <a href="{{ place.url }}" target="_blank" class="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-800 font-semibold transition-colors group">
+                                    <span>{{ place.address[:40] }}{% if place.address|length > 40 %}...{% endif %}</span>
+                                    <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                    </svg>
                                 </a>
-                                <p class="text-xs text-slate-500 mt-1">{{ place.address or 'Address not available' }}</p>
                             </td>
-                            <td class="px-6 py-4 text-center">
-                                <span class="inline-block bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full font-semibold">
-                                    {{ place.avg_rating or 'N/A' }}
+                            <td class="px-6 py-5 text-center">
+                                <span class="inline-block bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg font-bold text-base shadow">
+                                    {{ place.avg_rating }}
                                 </span>
                             </td>
-                            <td class="px-6 py-4 text-center font-medium text-slate-700">
-                                {{ place.reviews or 0 }}
+                            <td class="px-6 py-5 text-center font-bold text-slate-700 text-base">
+                                {{ place.reviews }}
                             </td>
-                            <td class="px-6 py-4 text-center">
-                                <span class="inline-block px-3 py-1 rounded-full font-semibold {% if place.sentiment|float >= 0.5 %}bg-green-50 text-green-700{% elif place.sentiment|float <= -0.3 %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %}">
-                                    {{ place.sentiment or 'N/A' }}
+                            <td class="px-6 py-5 text-center">
+                                {% set sentiment = place.sentiment|float %}
+                                <span class="inline-block px-4 py-2 rounded-lg font-bold text-base shadow {% if sentiment >= 0.5 %}bg-green-100 text-green-800{% elif sentiment <= -0.3 %}bg-red-100 text-red-800{% else %}bg-amber-100 text-amber-800{% endif %}">
+                                    {{ place.sentiment }}
                                 </span>
                             </td>
-                            <td class="px-6 py-4 text-center">
-                                <span class="inline-block bg-gradient-to-r from-cyan-600 to-blue-600 text-white px-4 py-2 rounded-lg font-bold">
-                                    {{ place.score or 'N/A' }}
+                            <td class="px-6 py-5 text-center">
+                                <span class="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2 rounded-lg font-extrabold text-lg shadow-lg">
+                                    {{ place.score }}
                                 </span>
                             </td>
                         </tr>
@@ -156,33 +194,30 @@
                     </tbody>
                 </table>
             </div>
-        </section>
+        </div>
 
-        <!-- New Search Button -->
-        <div class="text-center mt-8">
-            <a href="/" class="inline-block bg-slate-800 hover:bg-slate-900 text-white font-semibold px-8 py-3 rounded-lg transition-colors">
+        <div class="text-center mt-10">
+            <a href="/" class="inline-block bg-gradient-to-r from-slate-700 to-slate-900 hover:from-slate-800 hover:to-black text-white font-bold px-10 py-4 rounded-xl transition-all transform hover:scale-105 shadow-xl text-lg">
                 🔄 New Search
             </a>
         </div>
         {% endif %}
     </div>
 
-    <!-- Progress Update Script -->
     {% if loading %}
     <script>
         const statusKey = "{{ status_key }}";
-        const pollInterval = 2000; // Poll every 2 seconds
+        const pollInterval = 2000;
         let pollId = null;
         let isProcessing = true;
 
         async function updateProgress() {
-            if (!isProcessing) return; // Stop polling if not processing
+            if (!isProcessing) return;
             
             try {
                 const response = await fetch(`/status/{{ dish }}/{{ city }}`);
                 const data = await response.json();
                 
-                // Update progress bar
                 const progressBar = document.getElementById('progress-bar');
                 const progressText = document.getElementById('progress-text');
                 const statusMessage = document.getElementById('status-message');
@@ -197,14 +232,12 @@
                     statusMessage.textContent = data.message || 'Processing...';
                 }
                 
-                // Redirect to results page when complete (don't reload, redirect instead)
                 if (data.status === 'completed') {
-                    isProcessing = false; // Stop polling
+                    isProcessing = false;
                     if (pollId) clearInterval(pollId);
-                    // Use location.href instead of location.reload() to ensure fresh page load
                     window.location.href = `/results/{{ dish }}/{{ city }}`;
                 } else if (data.status === 'error') {
-                    isProcessing = false; // Stop polling
+                    isProcessing = false;
                     if (pollId) clearInterval(pollId);
                     statusMessage.innerHTML = '❌ ' + data.message;
                     if (progressBar) progressBar.style.backgroundColor = '#ef4444';
@@ -214,15 +247,103 @@
             }
         }
 
-        // Poll status initially and then every pollInterval
         updateProgress();
         pollId = setInterval(updateProgress, pollInterval);
         
-        // Stop polling on page unload
         window.addEventListener('beforeunload', () => {
             isProcessing = false;
             if (pollId) clearInterval(pollId);
         });
+    </script>
+    {% endif %}
+
+    {% if places %}
+    <script>
+        let map;
+        let markers = [];
+        const places = {{ places | tojson }};
+
+        function initMap() {
+            if (places.length === 0) return;
+
+            const centerLat = places.reduce((sum, p) => sum + p.latitude, 0) / places.length;
+            const centerLng = places.reduce((sum, p) => sum + p.longitude, 0) / places.length;
+
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: centerLat, lng: centerLng },
+                zoom: 12,
+                styles: [
+                    {
+                        featureType: 'poi',
+                        elementType: 'labels',
+                        stylers: [{ visibility: 'off' }]
+                    }
+                ]
+            });
+
+            places.forEach((place, index) => {
+                const marker = new google.maps.Marker({
+                    position: { lat: place.latitude, lng: place.longitude },
+                    map: map,
+                    title: place.name,
+                    label: {
+                        text: String(index + 1),
+                        color: 'white',
+                        fontWeight: 'bold',
+                        fontSize: '14px'
+                    },
+                    animation: google.maps.Animation.DROP,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 15,
+                        fillColor: index === 0 ? '#6366f1' : '#8b5cf6',
+                        fillOpacity: 1,
+                        strokeColor: 'white',
+                        strokeWeight: 3
+                    }
+                });
+
+                const infoWindow = new google.maps.InfoWindow({
+                    content: `
+                        <div style="padding: 10px; max-width: 250px;">
+                            <h3 style="font-weight: bold; font-size: 16px; margin-bottom: 5px; color: #1e293b;">${place.name}</h3>
+                            <p style="color: #64748b; font-size: 13px; margin-bottom: 8px;">${place.address}</p>
+                            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                                <span style="background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">⭐ ${place.avg_rating}</span>
+                                <span style="background: #e0e7ff; color: #3730a3; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">🏆 ${place.score}</span>
+                            </div>
+                            <a href="${place.url}" target="_blank" style="color: #6366f1; font-weight: 600; text-decoration: none; font-size: 13px;">View on Google Maps →</a>
+                        </div>
+                    `
+                });
+
+                marker.addListener('click', () => {
+                    closeAllInfoWindows();
+                    infoWindow.open(map, marker);
+                });
+
+                markers.push({ marker, infoWindow });
+            });
+        }
+
+        function closeAllInfoWindows() {
+            markers.forEach(m => m.infoWindow.close());
+        }
+
+        function highlightMarker(index) {
+            if (markers[index]) {
+                map.setCenter(markers[index].marker.getPosition());
+                map.setZoom(15);
+                closeAllInfoWindows();
+                markers[index].infoWindow.open(map, markers[index].marker);
+                markers[index].marker.setAnimation(google.maps.Animation.BOUNCE);
+                setTimeout(() => {
+                    markers[index].marker.setAnimation(null);
+                }, 2000);
+            }
+        }
+
+        window.onload = initMap;
     </script>
     {% endif %}
 
