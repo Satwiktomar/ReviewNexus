@@ -282,6 +282,10 @@ def _scrape_with_playwright(
             timezone_id='Asia/Kolkata',
         )
         page = ctx.new_page()
+        
+        # MASSIVE Memory Saver: Block images, fonts, and CSS
+        page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] else route.continue_())
+        
         page.set_default_timeout(30_000)
 
         try:
