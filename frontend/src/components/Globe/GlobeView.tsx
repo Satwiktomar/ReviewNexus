@@ -24,7 +24,7 @@ function getSunPosition(): { lat: number; lng: number } {
 }
 
 export default function GlobeView() {
-  const globeEl = useRef<any>();
+  const globeEl = useRef<any>(null);
   const {
     mode, viewMode, cityCoords, restaurants,
     hoveredRestaurant, selectedRestaurant,
@@ -91,6 +91,21 @@ export default function GlobeView() {
     }
   }, [selectedRestaurant]);
 
+  // Apply auto-rotation logic via controls instead of props (fixes TS error)
+  useEffect(() => {
+    if (globeEl.current && globeEl.current.controls) {
+      try {
+        const controls = globeEl.current.controls();
+        if (controls) {
+          controls.autoRotate = isRotating;
+          controls.autoRotateSpeed = mode === 'idle' ? 3.0 : mode === 'searching' ? 4.5 : 0.8;
+        }
+      } catch (err) {
+        // Safe catch if controls aren't mounted yet
+      }
+    }
+  }, [isRotating, mode]);
+
   const markersData = useMemo(() => {
     if (mode !== 'results') return [];
     return restaurants.map(r => ({
@@ -139,8 +154,6 @@ export default function GlobeView() {
         htmlLat="latitude"
         htmlLng="longitude"
         htmlElement={createGlobeMarker}
-        autoRotate={isRotating}
-        autoRotateSpeed={isIdle ? 3.0 : mode === 'searching' ? 4.5 : 0.8}
       />
 
       {/* ── Sun & Moon — search page only ── */}
