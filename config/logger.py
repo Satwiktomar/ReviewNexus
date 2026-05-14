@@ -1,11 +1,11 @@
-"""Logging configuration for FoodRank application."""
+"""Logging configuration for ReviewNexus application."""
 import logging
 import logging.handlers
 from pathlib import Path
 from config.settings import LOGS_DIR, LOG_LEVEL, LOG_FORMAT
 
 
-def setup_logging(name: str = 'foodrank') -> logging.Logger:
+def setup_logging(name: str = 'reviewnexus') -> logging.Logger:
     """
     Set up logging for the application.
     

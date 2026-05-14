@@ -1,447 +1,545 @@
-import json
-import os
+"""
+Google Maps scraper — improved Playwright automation.
+Zero external API keys.
+
+Improvements over v1:
+ • Multi-query strategy (3 variants, deduplicated merge)
+ • wait_for_load_state instead of time.sleep
+ • Scroll until article count stabilises (not fixed rounds)
+ • Panel-click review extraction without page navigation
+ • Fuzzy deduplication via difflib
+ • Granular progress callbacks
+"""
+
+import re
 import time
 import urllib.parse
-import re
-from typing import List, Dict, Optional
-import requests
+import threading
+from difflib import SequenceMatcher
+from typing import List, Dict, Optional, Callable, Tuple
+
 from config.logger import setup_logging
 from config.settings import SCRAPER_MAX_RETRIES, SCRAPER_RETRY_DELAY
-from dotenv import load_dotenv
+from scrapers.geocoder import geocode_batch, get_city_fallback
 
 logger = setup_logging('scraper')
-load_dotenv()
-
-GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '').strip()
 
 try:
-    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
-    logger.warning("Playwright not installed")
+    logger.warning("Playwright not installed. Run: pip install playwright && playwright install chromium")
+
+
+# ─────────────────────────────────────────────────────────────
+# Public entry point
+# ─────────────────────────────────────────────────────────────
 
 def scrape_google_maps_reviews_sync(
     search_terms: List[str],
     location: str,
     max_places: int = 15,
-    max_reviews: int = 20
+    max_reviews: int = 20,
+    progress_cb: Optional[Callable[[int, str], None]] = None,
 ) -> Optional[List[Dict]]:
-    logger.info(f"Scraping: {search_terms} in {location}")
-    
-    if GOOGLE_MAPS_API_KEY and GOOGLE_MAPS_API_KEY != "":
-        logger.info("[API] Attempting Google Places API")
-        try:
-            api_data = _scrape_with_places_api(search_terms, location, max_places, max_reviews)
-            if api_data and len(api_data) >= 3:
-                logger.info(f"[API] Success: {len(api_data)} places")
-                return api_data
-        except Exception as e:
-            logger.warning(f"[API] Failed: {e}")
-    
+    """
+    Scrape Google Maps results. Returns list of place dicts or None.
+    progress_cb(percent: int, message: str) is called periodically.
+    """
+    def _progress(pct: int, msg: str):
+        logger.info(f"[{pct}%] {msg}")
+        if progress_cb:
+            progress_cb(pct, msg)
+
+    _progress(2, "Starting scraper…")
+
     if PLAYWRIGHT_AVAILABLE:
-        logger.info("[WEB] Starting advanced web scraping...")
         for attempt in range(SCRAPER_MAX_RETRIES):
             try:
-                scraped_data = _scrape_with_playwright_advanced(search_terms, location, max_places, max_reviews)
-                if scraped_data and len(scraped_data) >= 5:
-                    logger.info(f"[WEB] Success: {len(scraped_data)} places")
-                    return scraped_data
-                else:
-                    logger.warning(f"[WEB] Attempt {attempt + 1}: Only found {len(scraped_data) if scraped_data else 0} places")
-            except Exception as e:
-                logger.warning(f"[WEB] Attempt {attempt + 1}/{SCRAPER_MAX_RETRIES} failed: {e}")
-            
+                _progress(5 + attempt * 5, f"Playwright attempt {attempt + 1}/{SCRAPER_MAX_RETRIES}…")
+                data = _scrape_with_playwright(search_terms, location, max_places, max_reviews, _progress)
+                if data and len(data) >= 3:
+                    logger.info(f"[WEB] Success — {len(data)} places")
+                    return data
+                logger.warning(f"[WEB] Attempt {attempt + 1}: {len(data) if data else 0} places, retrying…")
+            except Exception as exc:
+                logger.warning(f"[WEB] Attempt {attempt + 1} failed: {exc}")
             if attempt < SCRAPER_MAX_RETRIES - 1:
                 time.sleep(SCRAPER_RETRY_DELAY)
-    
-    logger.info("[FALLBACK] Using mock data - web scraping insufficient")
+    else:
+        logger.warning("Playwright unavailable, using mock data")
+
+    _progress(85, "Using rich mock data (scraping unavailable)…")
     return _get_mock_data(location)
 
-def _scrape_with_places_api(search_terms: List[str], location: str, max_places: int, max_reviews: int) -> Optional[List[Dict]]:
-    places = []
-    
-    try:
-        for search_term in search_terms[:1]:
-            url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-            params = {
-                'query': f"{search_term} in {location}",
-                'key': GOOGLE_MAPS_API_KEY
+
+# ─────────────────────────────────────────────────────────────
+# Query helpers
+# ─────────────────────────────────────────────────────────────
+
+def _build_queries(dish: str, location: str) -> List[str]:
+    """Return 3 query variants for richer result coverage."""
+    return [
+        f"best {dish} in {location}",
+        f"{dish} restaurant {location}",
+        f"top {dish} near {location}",
+    ]
+
+
+def _is_duplicate(a: str, b: str, threshold: float = 0.82) -> bool:
+    """Fuzzy name comparison to de-duplicate similar results."""
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio() > threshold
+
+
+def _is_valid_name(name: str) -> bool:
+    if not name or len(name.strip()) < 3:
+        return False
+    noise = {
+        'collapse','side panel','menu','search','filter','sort','map',
+        'satellite','directions','save','share','nearby','reviews','photos',
+        'about','overview','send to','website','phone','hours','address',
+        'suggest','edit','restaurants','hotels','places','results for',
+    }
+    nl = name.lower().strip()
+    return not any(b in nl for b in noise)
+
+
+def _parse_float(text: str, lo: float, hi: float, fallback: float) -> float:
+    m = re.search(r'\b(\d+(?:\.\d)?)\b', str(text))
+    if m:
+        v = float(m.group(1))
+        if lo <= v <= hi:
+            return v
+    return fallback
+
+
+# ─────────────────────────────────────────────────────────────
+# Playwright scraper
+# ─────────────────────────────────────────────────────────────
+
+def _dismiss_consent(page) -> None:
+    """Try multiple selectors to click through GDPR / cookie consent."""
+    selectors = [
+        'button[aria-label="Accept all"]',
+        'button[aria-label="Reject all"]',
+        'button:has-text("Accept all")',
+        'button:has-text("Agree")',
+        'button:has-text("I agree")',
+        '#L2AGLb',
+        'form[action*="consent"] button',
+        '[data-value="1"]',
+    ]
+    for sel in selectors:
+        try:
+            btn = page.query_selector(sel)
+            if btn and btn.is_visible():
+                btn.click()
+                page.wait_for_timeout(1000)
+                return
+        except Exception:
+            continue
+
+
+def _scroll_until_stable(page, feed_sel: str, target: int, max_rounds: int = 14) -> None:
+    """Scroll the feed until article count stabilises or target reached."""
+    prev = 0
+    stable = 0
+    for _ in range(max_rounds):
+        try:
+            page.evaluate(f"document.querySelector('{feed_sel}')?.scrollBy(0, 900)")
+        except Exception:
+            pass
+        page.wait_for_timeout(900)
+        articles = page.query_selector_all('[role="article"]')
+        count = len(articles)
+        if count >= target:
+            break
+        if count == prev:
+            stable += 1
+            if stable >= 2:
+                break
+        else:
+            stable = 0
+        prev = count
+
+
+_EXTRACT_JS = """
+() => {
+    const feed = document.querySelector('[role="feed"]');
+    if (!feed) return [];
+    const seen = new Set();
+    const out  = [];
+    feed.querySelectorAll('[role="article"]').forEach(art => {
+        try {
+            const link = art.querySelector('a[href*="/maps/place/"]');
+            if (!link) return;
+            let name = (link.getAttribute('aria-label') || '').split('·')[0].trim();
+            if (!name) {
+                const h = art.querySelector('.fontHeadlineSmall,[class*="fontHeadline"]');
+                name = h ? h.textContent.trim() : '';
             }
-            
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            
-            if data['status'] == 'OK':
-                for result in data['results'][:max_places]:
-                    name = result.get('name', 'N/A')
-                    address = result.get('formatted_address', location)
-                    lat = result.get('geometry', {}).get('location', {}).get('lat', 0)
-                    lng = result.get('geometry', {}).get('location', {}).get('lng', 0)
-                    
-                    place = {
-                        'name': name,
-                        'rating': result.get('rating', 0),
-                        'review_count': result.get('user_ratings_total', 0),
-                        'address': address,
-                        'reviews': [],
-                        'latitude': lat,
-                        'longitude': lng,
-                        'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'{name} {address}')}"
-                    }
-                    places.append(place)
-            
-            return places if places else None
-    
+            name = name.replace(/\\s+/g,' ').trim();
+            if (!name || seen.has(name.toLowerCase())) return;
+            seen.add(name.toLowerCase());
+
+            const rEl = art.querySelector('.MW4etd,[aria-label*="star"],[aria-label*="Star"]');
+            let rating = 4.0;
+            if (rEl) {
+                const rl = rEl.getAttribute('aria-label') || rEl.textContent;
+                const rm = rl.match(/([1-5](?:\\.\\d)?)/);
+                if (rm) rating = parseFloat(rm[1]);
+            }
+
+            const rcEl = art.querySelector('.UY7F9,[aria-label*="review"]');
+            let rc = 50;
+            if (rcEl) {
+                const rt = rcEl.textContent.replace(/[^0-9,]/g,'');
+                if (rt) rc = parseInt(rt.replace(',',''));
+            }
+
+            let address = '';
+            art.querySelectorAll('.W4Efsd,.Io6YTe').forEach(el => {
+                const t = el.textContent.trim();
+                if (t && t.length > 5 && !address) address = t;
+            });
+
+            out.push({ name, href: link.href, rating, reviewCount: rc, address });
+        } catch(e){}
+    });
+    return out;
+}
+"""
+
+_REVIEW_JS = """
+(maxRev) => {
+    const els = document.querySelectorAll('[data-review-id] span.wiI7pd,.MyEned span');
+    const out = [];
+    els.forEach(el => {
+        const t = el.textContent.trim();
+        if (t.length > 10) out.push(t);
+        if (out.length >= maxRev) return;
+    });
+    return out;
+}
+"""
+
+
+def _extract_reviews_panel(page, article_el, max_reviews: int) -> Tuple[List[Dict], Optional[str]]:
+    """
+    Click into an article card to open the side-panel, extract reviews,
+    then press Escape to return to the results list.
+    Stays on the same page — no navigation needed.
+    """
+    current_url = None
+    try:
+        article_el.click()
+        page.wait_for_timeout(1800)
+        current_url = page.url
+        texts = page.evaluate(_REVIEW_JS, max_reviews) or []
+        if texts:
+            page.keyboard.press('Escape')
+            page.wait_for_timeout(600)
+            return [{'text': t[:300]} for t in texts[:max_reviews]], current_url
     except Exception as e:
-        logger.error(f"Places API error: {e}")
+        logger.debug(f"Panel review extraction: {e}")
+    try:
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(400)
+    except Exception:
+        pass
+    return [{'text': 'Great place!'}], current_url
+
+
+def _scrape_with_playwright(
+    search_terms: List[str],
+    location: str,
+    max_places: int,
+    max_reviews: int,
+    progress: Callable,
+) -> Optional[List[Dict]]:
+
+    dish = search_terms[0] if search_terms else 'restaurant'
+    queries = _build_queries(dish, location)
+
+    all_places: List[Dict] = []
+    seen_names: set = set()
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(
+            headless=True,
+            args=['--no-sandbox','--disable-dev-shm-usage',
+                  '--disable-blink-features=AutomationControlled'],
+        )
+        ctx = browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent=(
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/124.0.0.0 Safari/537.36'
+            ),
+            locale='en-US',
+            timezone_id='Asia/Kolkata',
+        )
+        page = ctx.new_page()
+        page.set_default_timeout(30_000)
+
+        try:
+            for q_idx, query in enumerate(queries):
+                if len(all_places) >= max_places:
+                    break
+
+                url = f"https://www.google.com/maps/search/{urllib.parse.quote(query)}"
+                progress(10 + q_idx * 10, f"Searching: {query}")
+                logger.info(f"URL: {url}")
+
+                page.goto(url)
+                try:
+                    page.wait_for_load_state('networkidle', timeout=12_000)
+                except PWTimeout:
+                    page.wait_for_timeout(2000)
+
+                _dismiss_consent(page)
+                page.wait_for_timeout(800)
+
+                # Locate results feed
+                feed_sel = '[role="feed"]'
+                try:
+                    page.wait_for_selector(feed_sel, timeout=10_000)
+                except PWTimeout:
+                    for alt in ['div[aria-label*="Results"]', 'div.m6QErb']:
+                        if page.query_selector(alt):
+                            feed_sel = alt
+                            break
+
+                # Scroll until stable or target reached
+                progress(20 + q_idx * 10, f"Scrolling results (query {q_idx+1}/{len(queries)})…")
+                needed = max_places - len(all_places)
+                _scroll_until_stable(page, feed_sel, target=needed + 5)
+
+                # JS extraction
+                raw = page.evaluate(_EXTRACT_JS) or []
+                logger.info(f"Query {q_idx+1}: {len(raw)} raw results")
+
+                articles = page.query_selector_all('[role="article"]')
+                art_map = {i: el for i, el in enumerate(articles)}
+
+                for i, item in enumerate(raw):
+                    if len(all_places) >= max_places:
+                        break
+
+                    name = item.get('name', '').strip()
+                    if not _is_valid_name(name):
+                        continue
+
+                    # Fuzzy dedup across queries
+                    if any(_is_duplicate(name, n) for n in seen_names):
+                        continue
+                    seen_names.add(name.lower())
+
+                    pct = 30 + int((len(all_places) / max(max_places, 1)) * 45)
+                    progress(pct, f"Processing: {name}")
+
+                    # Extract reviews via panel click
+                    art_el = art_map.get(i)
+                    current_url = None
+                    if art_el:
+                        reviews, current_url = _extract_reviews_panel(page, art_el, max_reviews)
+                    else:
+                        reviews = [{'text': 'Great place!'}]
+
+                    href = item.get('href', '')
+                    gmaps_url = (
+                        href if href and '/maps/place/' in href
+                        else (
+                            f"https://www.google.com/maps/search/?api=1"
+                            f"&query={urllib.parse.quote(f'{name} {location}')}"
+                        )
+                    )
+
+                    lat, lng = 0.0, 0.0
+                    if current_url:
+                        match = re.search(r'@([0-9.-]+),([0-9.-]+),', current_url)
+                        if match:
+                            try:
+                                lat = float(match.group(1))
+                                lng = float(match.group(2))
+                            except ValueError:
+                                pass
+
+                    all_places.append({
+                        'name':         name,
+                        'rating':       round(float(item.get('rating', 4.0)), 1),
+                        'review_count': int(item.get('reviewCount', 50)),
+                        'address':      item.get('address', location),
+                        'reviews':      reviews,
+                        'latitude':     lat,
+                        'longitude':    lng,
+                        'url':          gmaps_url,
+                    })
+                    logger.info(f"  [OK] {name} ({item.get('rating')} stars, {item.get('reviewCount')} reviews) @({lat},{lng})")
+
+        except Exception as exc:
+            logger.error(f"Playwright error: {exc}")
+        finally:
+            browser.close()
+
+    if not all_places:
         return None
 
-def _extract_rating(text: str) -> float:
-    match = re.search(r'(\d+\.?\d*)\s*star', text.lower())
-    if match:
-        return float(match.group(1))
-    match = re.search(r'(\d+\.?\d*)', text)
-    if match:
-        rating = float(match.group(1))
-        if 0 <= rating <= 5:
-            return rating
-    return 4.0
+    progress(78, f"Geocoding {len(all_places)} places via Nominatim…")
+    all_places = geocode_batch(all_places, location)
+    progress(88, "Geocoding complete.")
 
-def _extract_review_count(text: str) -> int:
-    match = re.search(r'(\d+,?\d*)\s*review', text.lower())
-    if match:
-        return int(match.group(1).replace(',', ''))
-    match = re.search(r'\((\d+,?\d*)\)', text)
-    if match:
-        return int(match.group(1).replace(',', ''))
-    return 100
+    return all_places
 
-def _is_valid_restaurant_name(name: str) -> bool:
-    if not name or len(name) < 3:
-        return False
-    
-    invalid_keywords = [
-        'collapse', 'side panel', 'menu', 'search', 'filter', 'sort',
-        'map', 'satellite', 'directions', 'save', 'share', 'nearby',
-        'reviews', 'photos', 'about', 'overview', 'send to',
-        'website', 'phone', 'hours', 'address', 'suggest'
-    ]
-    
-    name_lower = name.lower().strip()
-    
-    for keyword in invalid_keywords:
-        if keyword in name_lower:
-            return False
-    
-    if name_lower in ['restaurants', 'hotels', 'places']:
-        return False
-    
-    return True
 
-def _scrape_with_playwright_advanced(search_terms: List[str], location: str, max_places: int, max_reviews: int) -> Optional[List[Dict]]:
-    places = []
-    
-    try:
-        with sync_playwright() as p:
-            logger.info("Launching browser...")
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            )
-            page = context.new_page()
-            page.set_default_timeout(30000)
-            
-            for search_term in search_terms[:1]:
-                try:
-                    query = f"{search_term} in {location}"
-                    url = f"https://www.google.com/maps/search/{urllib.parse.quote(query)}"
-                    
-                    logger.info(f"Navigating to: {url}")
-                    page.goto(url, wait_until="domcontentloaded")
-                    time.sleep(5)
-                    
-                    logger.info("Scrolling to load results...")
-                    for i in range(3):
-                        page.keyboard.press("PageDown")
-                        time.sleep(1)
-                    
-                    logger.info("Extracting place data...")
-                    
-                    place_elements = page.query_selector_all('div[role="article"]')
-                    logger.info(f"Found {len(place_elements)} place elements")
-                    
-                    if not place_elements:
-                        place_elements = page.query_selector_all('a[href*="/maps/place/"]')
-                        logger.info(f"Fallback: Found {len(place_elements)} link elements")
-                    
-                    seen_names = set()
-                    
-                    for element in place_elements[:max_places * 2]:
-                        try:
-                            text_content = element.text_content() or ""
-                            aria_label = element.get_attribute('aria-label') or ""
-                            
-                            lines = [line.strip() for line in text_content.split('\n') if line.strip()]
-                            
-                            if not lines:
-                                continue
-                            
-                            name = lines[0]
-                            
-                            name = re.sub(r'\s+\d+\.?\d*\s*\([\d,]+\).*', '', name)
-                            name = re.sub(r'\s+₹.*', '', name)
-                            name = re.sub(r'\s+\$.*', '', name)
-                            name = re.sub(r'\s+·.*', '', name)
-                            name = name.strip()
-                            
-                            if not _is_valid_restaurant_name(name):
-                                continue
-                            
-                            name_lower = name.lower()
-                            if name_lower in seen_names:
-                                continue
-                            
-                            seen_names.add(name_lower)
-                            
-                            rating = 4.0
-                            review_count = 100
-                            
-                            for line in lines[1:5]:
-                                if 'star' in line.lower() or re.search(r'\d+\.?\d*', line):
-                                    rating = _extract_rating(line)
-                                if 'review' in line.lower() or '(' in line:
-                                    review_count = _extract_review_count(line)
-                            
-                            try:
-                                element.click(timeout=2000)
-                                time.sleep(1.5)
-                                
-                                address_elem = page.query_selector('button[data-item-id*="address"]')
-                                if address_elem:
-                                    address = address_elem.get_attribute('aria-label') or location
-                                else:
-                                    address = location
-                                
-                                page.keyboard.press("Escape")
-                                time.sleep(0.5)
-                            except:
-                                address = location
-                            
-                            place = {
-                                'name': name,
-                                'rating': round(rating, 1),
-                                'review_count': review_count,
-                                'address': address,
-                                'latitude': 0,
-                                'longitude': 0,
-                                'reviews': [{'text': 'Great place!'}],
-                                'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'{name} {location}')}"
-                            }
-                            
-                            places.append(place)
-                            logger.info(f"Extracted: {name} ({rating}⭐, {review_count} reviews)")
-                            
-                            if len(places) >= max_places:
-                                break
-                        
-                        except Exception as e:
-                            logger.debug(f"Error extracting place: {e}")
-                            continue
-                
-                except Exception as e:
-                    logger.error(f"Scraping error: {e}")
-            
-            browser.close()
-    
-    except Exception as e:
-        logger.error(f"Playwright error: {e}")
-    
-    places = _add_coordinates(places, location)
-    
-    return places if len(places) >= 5 else None
-
-def _add_coordinates(places: List[Dict], location: str) -> List[Dict]:
-    base_coords = {
-        "delhi": (28.6139, 77.2090),
-        "mumbai": (19.0760, 72.8777),
-        "bengaluru": (12.9716, 77.5946),
-        "lucknow": (26.8467, 80.9462),
-        "chennai": (13.0827, 80.2707),
-        "kolkata": (22.5726, 88.3639),
-        "hyderabad": (17.3850, 78.4867),
-        "pune": (18.5204, 73.8567)
-    }
-    
-    city_lower = location.lower()
-    base_lat, base_lng = (28.6139, 77.2090)
-    
-    for key, coords in base_coords.items():
-        if key in city_lower:
-            base_lat, base_lng = coords
-            break
-    
-    offsets = [
-        (0.01, 0.01), (-0.02, 0.02), (0.03, -0.01),
-        (-0.01, -0.02), (0.02, 0.03), (-0.03, 0.01),
-        (0.015, -0.015), (-0.025, -0.025), (0.005, 0.025)
-    ]
-    
-    for i, place in enumerate(places):
-        if place['latitude'] == 0:
-            offset_lat, offset_lng = offsets[i % len(offsets)]
-            place['latitude'] = base_lat + offset_lat
-            place['longitude'] = base_lng + offset_lng
-    
-    return places
+# ─────────────────────────────────────────────────────────────
+# Rich mock data fallback
+# ─────────────────────────────────────────────────────────────
 
 def _get_mock_data(location: str = "Bengaluru") -> List[Dict]:
-    base_coords = {
-        "delhi": (28.6139, 77.2090),
-        "mumbai": (19.0760, 72.8777),
-        "bengaluru": (12.9716, 77.5946),
-        "lucknow": (26.8467, 80.9462),
-        "chennai": (13.0827, 80.2707),
-        "kolkata": (22.5726, 88.3639)
-    }
-    
-    city_lower = location.lower()
-    for key in base_coords.keys():
-        if key in city_lower:
-            base_lat, base_lng = base_coords[key]
-            break
-    else:
-        base_lat, base_lng = (28.6139, 77.2090)
-    
-    return [
+    base_lat, base_lng = get_city_fallback(location)
+    offsets = [
+        (0.012, 0.015), (-0.018, 0.022), (0.025,-0.011),
+        (-0.009,-0.017), (0.019, 0.028), (-0.031, 0.014),
+        (0.016,-0.016), (-0.024,-0.024), (0.006, 0.026),
+        (0.033, 0.008), (-0.013, 0.033), (0.021,-0.027),
+    ]
+
+    restaurants = [
         {
-            'name': 'The Golden Fork Restaurant',
-            'rating': 4.8,
-            'review_count': 342,
-            'address': f'Central Business District, {location}',
-            'latitude': base_lat + 0.01,
-            'longitude': base_lng + 0.01,
+            'name': 'The Golden Fork',
+            'rating': 4.8, 'review_count': 1342,
+            'address': f'MG Road, {location}',
             'reviews': [
-                {'text': 'Excellent food quality and amazing service. Highly recommended!'},
-                {'text': 'Great ambiance and delicious dishes. Worth the price.'},
-                {'text': 'Very satisfied with our dining experience here.'},
-                {'text': 'Fantastic flavors and cozy atmosphere.'},
-                {'text': 'Best dining experience in the city!'}
+                {'text': 'Absolutely fantastic food and wonderful ambiance!'},
+                {'text': 'Best dining experience in the city. Service was impeccable.'},
+                {'text': 'Exceptional quality — fresh ingredients and bold flavours.'},
+                {'text': 'Perfect for a special dinner. Staff are very attentive.'},
+                {'text': 'Consistently great. My go-to restaurant in the area.'},
             ],
-            'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'The Golden Fork Restaurant {location}')}"
         },
         {
             'name': 'Spice Garden',
-            'rating': 4.5,
-            'review_count': 287,
-            'address': f'Market Area, {location}',
-            'latitude': base_lat - 0.02,
-            'longitude': base_lng + 0.02,
+            'rating': 4.5, 'review_count': 987,
+            'address': f'Commercial Street, {location}',
             'reviews': [
-                {'text': 'Really good food with authentic flavors.'},
-                {'text': 'Quick service and reasonable prices.'},
-                {'text': 'A must-visit place for food lovers.'},
-                {'text': 'Excellent spices and traditional recipes.'},
-                {'text': 'Worth every penny spent here.'}
+                {'text': 'Authentic flavours at very reasonable prices.'},
+                {'text': 'Quick service and generous portions. Will return.'},
+                {'text': 'A must-visit for anyone who loves real Indian cuisine.'},
+                {'text': 'Food tastes just like home-cooked meals.'},
+                {'text': 'Great value and super friendly staff.'},
             ],
-            'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'Spice Garden {location}')}"
         },
         {
             'name': 'Urban Palate',
-            'rating': 4.6,
-            'review_count': 415,
-            'address': f'Shopping District, {location}',
-            'latitude': base_lat + 0.03,
-            'longitude': base_lng - 0.01,
+            'rating': 4.6, 'review_count': 1215,
+            'address': f'Indiranagar, {location}',
             'reviews': [
-                {'text': 'Outstanding culinary experience!'},
-                {'text': 'Best restaurant in the area. Loved it!'},
-                {'text': 'Fantastic food and impeccable service.'},
-                {'text': 'Perfect ambiance with delicious dishes.'},
-                {'text': 'Highly recommend to everyone!'}
+                {'text': 'Outstanding culinary creativity! Every dish was a surprise.'},
+                {'text': 'Trendy ambiance and the food quality matches the decor.'},
+                {'text': 'Fantastic fusion menu — you can taste the care in every bite.'},
+                {'text': 'Presentation and taste both excel here.'},
+                {'text': 'Highly recommended for foodies seeking something special.'},
             ],
-            'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'Urban Palate {location}')}"
         },
         {
             'name': 'The Taste House',
-            'rating': 4.3,
-            'review_count': 156,
-            'address': f'Residential Zone, {location}',
-            'latitude': base_lat - 0.01,
-            'longitude': base_lng - 0.02,
+            'rating': 4.3, 'review_count': 756,
+            'address': f'Koramangala, {location}',
             'reviews': [
-                {'text': 'Good food with friendly staff.'},
-                {'text': 'Nice atmosphere and tasty dishes.'},
-                {'text': 'Will definitely come back again.'},
-                {'text': 'Great value for money.'},
-                {'text': 'Comfortable and welcoming place.'}
+                {'text': 'Good food with very friendly and helpful staff.'},
+                {'text': 'Nice cosy atmosphere, perfect for family dinners.'},
+                {'text': 'Will definitely come back — the biryani is superb.'},
+                {'text': 'Great value for money. Huge portions too!'},
+                {'text': 'Feels like a second home.'},
             ],
-            'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'The Taste House {location}')}"
         },
         {
             'name': 'Flavor Kitchen',
-            'rating': 4.4,
-            'review_count': 203,
-            'address': f'Commercial Hub, {location}',
-            'latitude': base_lat + 0.02,
-            'longitude': base_lng + 0.03,
+            'rating': 4.4, 'review_count': 903,
+            'address': f'HSR Layout, {location}',
             'reviews': [
-                {'text': 'Exceptional taste and quality.'},
-                {'text': 'Great place for family dining.'},
-                {'text': 'Consistently good food and service.'},
-                {'text': 'Amazing dishes with fresh ingredients.'},
-                {'text': 'Loved the food and service here!'}
+                {'text': 'Exceptional taste and consistently high quality.'},
+                {'text': 'Perfect for family dining — kids loved it too.'},
+                {'text': 'Reliable quality — food is always excellent here.'},
+                {'text': 'Amazing dishes with the freshest ingredients.'},
+                {'text': 'Loved the food and the attentive service!'},
             ],
-            'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'Flavor Kitchen {location}')}"
         },
         {
             'name': 'Culinary Delight',
-            'rating': 4.7,
-            'review_count': 298,
-            'address': f'Downtown, {location}',
-            'latitude': base_lat - 0.03,
-            'longitude': base_lng + 0.01,
+            'rating': 4.7, 'review_count': 1098,
+            'address': f'Jayanagar, {location}',
             'reviews': [
-                {'text': 'Amazing food and wonderful service!'},
-                {'text': 'Best place for authentic cuisine.'},
-                {'text': 'Loved every dish we ordered.'},
-                {'text': 'Great ambiance and tasty food.'},
-                {'text': 'Will definitely visit again!'}
+                {'text': 'Phenomenal food — the chef clearly has real talent.'},
+                {'text': 'Best place for authentic local cuisine in the city.'},
+                {'text': 'Every single dish we ordered was a delight.'},
+                {'text': 'Great ambiance that perfectly complements the food.'},
+                {'text': 'Will visit again and again!'},
             ],
-            'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'Culinary Delight {location}')}"
         },
         {
             'name': 'Tasty Bites',
-            'rating': 4.2,
-            'review_count': 178,
-            'address': f'City Center, {location}',
-            'latitude': base_lat + 0.015,
-            'longitude': base_lng - 0.015,
+            'rating': 4.2, 'review_count': 578,
+            'address': f'BTM Layout, {location}',
             'reviews': [
-                {'text': 'Good food at reasonable prices.'},
-                {'text': 'Family-friendly atmosphere.'},
-                {'text': 'Quick service and fresh food.'},
-                {'text': 'Nice place for casual dining.'},
-                {'text': 'Enjoyed our meal here.'}
+                {'text': 'Good food at very reasonable prices.'},
+                {'text': 'Family-friendly atmosphere, excellent kids menu.'},
+                {'text': 'Quick service and very fresh food.'},
+                {'text': 'Nice place for a relaxed casual meal.'},
+                {'text': 'Thoroughly enjoyed our meal here.'},
             ],
-            'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'Tasty Bites {location}')}"
         },
         {
             'name': 'Food Paradise',
-            'rating': 4.6,
-            'review_count': 321,
-            'address': f'Main Street, {location}',
-            'latitude': base_lat - 0.025,
-            'longitude': base_lng - 0.025,
+            'rating': 4.6, 'review_count': 1421,
+            'address': f'Whitefield, {location}',
             'reviews': [
-                {'text': 'Incredible variety and taste!'},
-                {'text': 'One of the best restaurants in the city.'},
-                {'text': 'Everything we tried was delicious.'},
-                {'text': 'Highly recommend this place!'},
-                {'text': 'Great food and excellent service.'}
+                {'text': 'Incredible variety — something for everyone!'},
+                {'text': 'One of the consistently best restaurants in the city.'},
+                {'text': 'Everything we tried was absolutely delicious.'},
+                {'text': 'Highly recommend to anyone visiting the area!'},
+                {'text': 'Great food and truly excellent service.'},
             ],
-            'url': f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(f'Food Paradise {location}')}"
-        }
+        },
+        {
+            'name': 'The Curry House',
+            'rating': 4.5, 'review_count': 832,
+            'address': f'Marathahalli, {location}',
+            'reviews': [
+                {'text': "Authentic curries that remind me of grandmother's cooking."},
+                {'text': 'The dal makhani here is legendary — must-try!'},
+                {'text': 'Very well-priced for the quality.'},
+                {'text': 'Always consistent — never been disappointed.'},
+                {'text': 'Best curry restaurant in the area.'},
+            ],
+        },
+        {
+            'name': 'Masala Hut',
+            'rating': 4.3, 'review_count': 644,
+            'address': f'Electronic City, {location}',
+            'reviews': [
+                {'text': 'Perfectly balanced spices — not too hot, not too mild.'},
+                {'text': 'Generous portions and very reasonable prices.'},
+                {'text': 'Love the relaxed vibe and quick service.'},
+                {'text': 'Great for a weekday lunch.'},
+                {'text': 'Solid neighbourhood restaurant that never disappoints.'},
+            ],
+        },
     ]
+
+    result = []
+    for i, r in enumerate(restaurants):
+        lat_off, lng_off = offsets[i % len(offsets)]
+        r['latitude']  = round(base_lat + lat_off, 6)
+        r['longitude'] = round(base_lng + lng_off, 6)
+        qstr = f"{r['name']} {location}"
+        r['url'] = (
+            f"https://www.google.com/maps/search/?api=1"
+            f"&query={urllib.parse.quote(qstr)}"
+        )
+        result.append(r)
+
+    return result

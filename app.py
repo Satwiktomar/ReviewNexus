@@ -7,12 +7,17 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import pandas as pd
 
+try:
+    from flask_cors import CORS
+    _CORS_AVAILABLE = True
+except ImportError:
+    _CORS_AVAILABLE = False
+
 from scrapers.google_maps_scraper import scrape_google_maps_reviews_sync
 from analyzers.ranker import analyze_and_rank
 from config.settings import (
-    DATA_DIR, MAX_PLACES, MAX_REVIEWS_PER_PLACE, 
-    ENABLE_CACHE, CACHE_EXPIRY_HOURS, FLASK_DEBUG, 
-    SECRET_KEY, MAX_FILENAME_LENGTH
+    DATA_DIR, MAX_PLACES, MAX_REVIEWS_PER_PLACE,
+    ENABLE_CACHE, CACHE_EXPIRY_HOURS, FLASK_DEBUG, SECRET_KEY,
 )
 from config.logger import setup_logging
 
@@ -21,27 +26,54 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
+# Allow Next.js dev server and production frontend to call the API
+if _CORS_AVAILABLE:
+    allowed_origins = ['http://localhost:3000', 'http://127.0.0.1:3000']
+    frontend_url = os.environ.get('FRONTEND_URL')
+    if frontend_url:
+        allowed_origins.append(frontend_url)
+    CORS(app, resources={r'/api/*': {'origins': allowed_origins}})
+
 scraping_status = {}
 status_lock = threading.Lock()
 
 def sanitize_input(text: str) -> str:
+    """Strip dangerous characters while preserving Unicode letters for city names."""
     if not text or not isinstance(text, str):
         return ""
     text = text.strip()
-    text = re.sub(r'[<>"\'/\\;`]', '', text)
+    # Remove shell/HTML injection chars; keep Unicode letters, digits, spaces, hyphens
+    text = re.sub(r'[<>"\'/\\;`|&$!]', '', text)
     text = re.sub(r'\s+', ' ', text)
     return text[:100]
+
+
+_VALID_INPUT_RE = re.compile(r'^[\w\s\-\.]+$', re.UNICODE)
+
 
 def validate_search_params(dish: str, city: str) -> tuple:
     dish = sanitize_input(dish)
     city = sanitize_input(city)
-    
-    if not dish or len(dish) < 2 or not dish.replace(' ', '').isalnum():
-        raise ValueError("Invalid dish name")
-    if not city or len(city) < 2 or not city.replace(' ', '').isalnum():
-        raise ValueError("Invalid city name")
-    
+
+    if not dish or len(dish) < 2 or not _VALID_INPUT_RE.match(dish):
+        raise ValueError("Invalid dish name — use letters, digits, spaces or hyphens")
+    if not city or len(city) < 2 or not _VALID_INPUT_RE.match(city):
+        raise ValueError("Invalid city name — use letters, digits, spaces or hyphens")
+
     return dish, city
+
+
+def _cleanup_stale_status(max_entries: int = 200) -> None:
+    """Prune the in-memory status dict to prevent unbounded growth."""
+    with status_lock:
+        if len(scraping_status) > max_entries:
+            # Remove completed / error entries first
+            stale = [
+                k for k, v in scraping_status.items()
+                if v.get('status') in ('completed', 'error')
+            ]
+            for k in stale:
+                del scraping_status[k]
 
 def is_cache_valid(filepath: Path) -> bool:
     if not ENABLE_CACHE or not filepath.exists():
@@ -81,13 +113,20 @@ def run_pipeline_in_background(dish: str, city: str, max_places: int = 15):
             logger.info("Starting scraper...")
             with status_lock:
                 scraping_status[status_key]['message'] = 'Scraping Google Maps...'
-            
+
+            def _progress_cb(pct: int, msg: str):
+                with status_lock:
+                    if status_key in scraping_status:
+                        scraping_status[status_key]['progress'] = pct
+                        scraping_status[status_key]['message']  = msg
+
             try:
                 scraped_items = scrape_google_maps_reviews_sync(
                     search_terms=[f"best {dish} in {city}"],
-                    location=f"{city}, India",
+                    location=city,
                     max_places=max_places,
-                    max_reviews=MAX_REVIEWS_PER_PLACE
+                    max_reviews=MAX_REVIEWS_PER_PLACE,
+                    progress_cb=_progress_cb,
                 )
                 
                 if scraped_items:
@@ -213,14 +252,15 @@ def results(dish: str, city: str):
     
     if ranked_csv_filename.exists():
         logger.info(f"Results found for {dish} in {city}")
-        
-        with status_lock:
-            if status_key in scraping_status:
-                del scraping_status[status_key]
-        
         try:
             df = pd.read_csv(ranked_csv_filename)
             places = df.to_dict(orient='records')
+            # Ensure numeric columns are the right types
+            for p in places:
+                p['latitude']  = float(p.get('latitude',  0) or 0)
+                p['longitude'] = float(p.get('longitude', 0) or 0)
+                p['score']     = float(p.get('score', 0) or 0)
+                p['avg_rating']= float(p.get('avg_rating', 0) or 0)
             return render_template('index.html', places=places, dish=dish, city=city, cached=True)
         except Exception as e:
             logger.error(f"Error reading results: {e}")
@@ -243,6 +283,92 @@ def results(dish: str, city: str):
 def health():
     return jsonify({'status': 'healthy'}), 200
 
+
+# ── JSON API for Next.js frontend ────────────────────────────
+
+@app.route('/api/search', methods=['POST'])
+def api_search():
+    """Start a search pipeline. Returns immediately with status_key."""
+    data = request.get_json(force=True, silent=True) or {}
+    dish = data.get('dish', '').strip()
+    city = data.get('city', '').strip()
+    max_places_raw = data.get('max_places', 15)
+
+    try:
+        dish, city = validate_search_params(dish, city)
+        max_places = max(5, min(int(max_places_raw), 20))
+    except (ValueError, TypeError) as e:
+        return jsonify({'error': str(e)}), 400
+
+    status_key = f'{dish}_{city}'
+    with status_lock:
+        current = scraping_status.get(status_key, {})
+
+    if current.get('status') not in ('scraping', 'analyzing'):
+        thread = threading.Thread(
+            target=run_pipeline_in_background,
+            args=(dish, city, max_places),
+            daemon=True,
+        )
+        thread.start()
+
+    return jsonify({'status_key': status_key, 'dish': dish, 'city': city})
+
+
+@app.route('/api/status/<string:dish>/<string:city>')
+def api_status(dish: str, city: str):
+    """Progress polling endpoint for Next.js."""
+    try:
+        dish, city = validate_search_params(dish, city)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    status_key = f'{dish}_{city}'
+    with status_lock:
+        status = scraping_status.get(status_key, {'status': 'unknown', 'progress': 0})
+    return jsonify(status)
+
+
+@app.route('/api/results/<string:dish>/<string:city>')
+def api_results(dish: str, city: str):
+    """Return ranked restaurants as JSON for the Next.js frontend."""
+    try:
+        dish, city = validate_search_params(dish, city)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    clean_dish = dish.replace(' ', '_').lower()
+    clean_city = city.replace(' ', '_').lower()
+    csv_path   = DATA_DIR / f'ranked_{clean_dish}_{clean_city}.csv'
+
+    if not csv_path.exists():
+        return jsonify({'error': 'Results not ready yet'}), 404
+
+    try:
+        df = pd.read_csv(csv_path)
+        places = df.to_dict(orient='records')
+        for p in places:
+            p['latitude']  = float(p.get('latitude',  0) or 0)
+            p['longitude'] = float(p.get('longitude', 0) or 0)
+            p['score']     = float(p.get('score',     0) or 0)
+            p['avg_rating']= float(p.get('avg_rating',0) or 0)
+            p['reviews']   = int(p.get('reviews',     0) or 0)
+
+        # City centre coordinates (first valid place)
+        city_lat = next((p['latitude']  for p in places if p['latitude']  != 0), 20.5937)
+        city_lng = next((p['longitude'] for p in places if p['longitude'] != 0), 78.9629)
+
+        return jsonify({
+            'dish':        dish,
+            'city':        city,
+            'city_lat':    city_lat,
+            'city_lng':    city_lng,
+            'restaurants': places,
+        })
+    except Exception as e:
+        logger.error(f'API results error: {e}')
+        return jsonify({'error': 'Error reading results'}), 500
+
 @app.errorhandler(404)
 def not_found(error):
     return render_template('index.html', error='Page not found'), 404
@@ -253,6 +379,6 @@ def internal_error(error):
     return render_template('index.html', error='Internal server error'), 500 
 
 if __name__ == '__main__':
-    logger.info("Starting FoodRank application...")
+    logger.info("Starting ReviewNexus application...")
     logger.info("Opening http://localhost:5000 in your browser...")
     app.run(debug=FLASK_DEBUG, use_reloader=False, port=5000, host='127.0.0.1')

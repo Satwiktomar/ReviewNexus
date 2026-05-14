@@ -56,8 +56,10 @@ class TestRanker(unittest.TestCase):
     def test_generate_google_maps_url(self):
         url = _generate_google_maps_url("Test Restaurant", "Bengaluru")
         self.assertIn("google.com/maps/search", url)
-        self.assertIn("Test+Restaurant", url)
+        # urllib.parse.quote uses %20 for spaces (not +)
+        self.assertTrue("Test%20Restaurant" in url or "Test+Restaurant" in url)
         self.assertIn("Bengaluru", url)
+
 
 class TestScraper(unittest.TestCase):
     

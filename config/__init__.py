@@ -1,1 +1,1 @@
-"""Configuration module for FoodRank."""
+"""Configuration module for ReviewNexus."""

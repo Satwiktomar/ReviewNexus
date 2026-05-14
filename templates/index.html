@@ -1,407 +1,332 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ReviewNexus — discover the best restaurants in any city worldwide, ranked by AI sentiment analysis.">
+  <title>{% if dish and city %}{{ dish|title }} in {{ city|title }} · ReviewNexus{% else %}ReviewNexus — AI Restaurant Discovery{% endif %}</title>
 
-    <title>
-        {% if dish and city %}
-        {{ dish | title }} in {{ city | title }} - FoodRank
-        {% else %}
-        FoodRank - AI-Powered Restaurant Discovery
-        {% endif %}
-    </title>
+  <!-- Design system -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
-        rel="stylesheet">
-    {% if places %}
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8"></script>
-    {% endif %}
+  <!-- Leaflet (always loaded — JS guards zero coordinates) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
-    <style>
-        body {
-            font-family: 'Poppins', sans-serif;
-        }
-
-        .progress-bar {
-            transition: width 0.3s ease;
-        }
-
-        @keyframes pulse-ring {
-            0% {
-                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7);
-            }
-
-            70% {
-                box-shadow: 0 0 0 15px rgba(99, 102, 241, 0);
-            }
-
-            100% {
-                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
-            }
-        }
-
-        .pulse-ring {
-            animation: pulse-ring 2s infinite;
-        }
-
-        #map {
-            width: 100%;
-            height: 500px;
-            border-radius: 16px;
-        }
-
-        .glow-card {
-            box-shadow: 0 10px 40px rgba(99, 102, 241, 0.1);
-            transition: all 0.3s ease;
-        }
-
-        .glow-card:hover {
-            box-shadow: 0 20px 60px rgba(99, 102, 241, 0.2);
-            transform: translateY(-2px);
-        }
-
-        .gradient-text {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .rank-badge {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        tr:hover {
-            background: linear-gradient(90deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%);
-        }
-    </style>
+  <!-- Three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.min.js"></script>
 </head>
 
-<body class="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 min-h-screen">
+<body>
+  <!-- Three.js fixed canvas (hero particles) -->
+  <canvas id="hero-canvas"></canvas>
 
-    <div class="container mx-auto px-4 py-8 max-w-7xl">
-        <header class="text-center mb-12">
-            <h1 class="text-6xl md:text-7xl font-extrabold gradient-text mb-4">🍜 FoodRank</h1>
-            <p class="text-xl text-slate-600 font-medium">Discover the best restaurants powered by AI sentiment analysis
-            </p>
-        </header>
+  <div class="page-wrapper">
 
-        {% if error %}
-        <div class="max-w-2xl mx-auto mb-8 p-6 bg-red-50 border-l-4 border-red-500 rounded-xl shadow-lg">
-            <p class="text-red-700 font-semibold">❌ {{ error }}</p>
-        </div>
-        {% endif %}
-
-        <section
-            class="max-w-3xl mx-auto bg-white/80 backdrop-blur-lg p-10 rounded-2xl shadow-2xl mb-12 border border-indigo-100 glow-card">
-            <form action="/" method="POST" class="space-y-6">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <label class="block text-sm font-semibold text-slate-700 mb-3">What are you craving?</label>
-                        <input type="text" name="dish" placeholder="e.g., Dosa, Pizza, Biryani"
-                            class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium"
-                            required autofocus>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold text-slate-700 mb-3">Which city?</label>
-                        <input type="text" name="city" placeholder="e.g., Delhi, Mumbai, Bengaluru"
-                            class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium"
-                            required>
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 mb-3">📊 How many restaurants?</label>
-                    <select name="max_places"
-                        class="w-full px-5 py-4 border-2 border-indigo-200 rounded-xl focus:ring-4 focus:ring-indigo-300 focus:border-indigo-500 outline-none transition text-lg font-medium bg-white">
-                        <option value="5">5 Restaurants</option>
-                        <option value="10">10 Restaurants</option>
-                        <option value="15" selected>15 Restaurants (Recommended)</option>
-                        <option value="20">20 Restaurants</option>
-                    </select>
-                </div>
-                <button type="submit"
-                    class="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white font-bold px-8 py-5 rounded-xl hover:shadow-2xl transition-all transform hover:scale-105 text-lg">
-                    🔍 Find Best Restaurants
-                </button>
-            </form>
-        </section>
-
-        {% if loading %}
-        <section
-            class="max-w-2xl mx-auto bg-white/80 backdrop-blur-lg p-14 rounded-2xl shadow-2xl border border-indigo-100">
-            <div class="text-center space-y-8">
-                <div class="flex justify-center">
-                    <div class="w-20 h-20 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full pulse-ring"></div>
-                </div>
-                <h2 class="text-4xl font-bold text-slate-800">Analyzing Data...</h2>
-                <p class="text-slate-600 text-lg">Finding the best <span class="font-bold text-indigo-600">{{ dish
-                        }}</span> in <span class="font-bold text-indigo-600">{{ city }}</span></p>
-
-                <div class="space-y-3">
-                    <div class="flex justify-between text-sm font-medium">
-                        <span class="text-slate-600">Progress</span>
-                        <span class="font-bold text-indigo-600" id="progress-text">0%</span>
-                    </div>
-                    <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
-                        <div class="progress-bar bg-gradient-to-r from-indigo-600 to-purple-600 h-3 rounded-full"
-                            style="width: 0%" id="progress-bar"></div>
-                    </div>
-                </div>
-
-                <div class="text-slate-500 text-sm italic font-medium" id="status-message">
-                    Scraping Google Maps reviews...
-                </div>
-
-                <p class="text-slate-500 text-sm">This may take a moment. Results are cached for instant future
-                    searches.</p>
-            </div>
-        </section>
-
-        {% elif places %}
-        <div class="bg-white/80 backdrop-blur-lg p-8 rounded-2xl shadow-2xl border border-indigo-100">
-            <div class="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-8 py-8 rounded-xl mb-8">
-                <h2 class="text-4xl font-extrabold text-white mb-2">
-                    ✨ Best {{ dish | title }} in {{ city | title }}
-                </h2>
-                <p class="text-indigo-100 text-lg font-medium">{{ places | length }} restaurants ranked by ratings and
-                    AI sentiment analysis</p>
-                {% if cached %}
-                <p class="text-indigo-100 text-sm mt-2 font-medium">📦 Cached results</p>
-                {% endif %}
-            </div>
-
-            <div id="map" class="mb-8 shadow-xl border-4 border-indigo-100"></div>
-
-            <div class="overflow-x-auto rounded-xl">
-                <table class="w-full">
-                    <thead class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
-                        <tr>
-                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">
-                                Rank</th>
-                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">
-                                Restaurant</th>
-                            <th class="px-6 py-5 text-left font-bold text-slate-800 text-sm uppercase tracking-wider">
-                                Location</th>
-                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">
-                                Rating ⭐</th>
-                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">
-                                Reviews 📝</th>
-                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">
-                                Sentiment 💭</th>
-                            <th class="px-6 py-5 text-center font-bold text-slate-800 text-sm uppercase tracking-wider">
-                                Score 🏆</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-indigo-100">
-                        {% for place in places %}
-                        <tr class="transition-all cursor-pointer" onclick="highlightMarker({{ loop.index0 }})">
-                            <td class="px-6 py-5">
-                                <span
-                                    class="inline-flex items-center justify-center w-10 h-10 rounded-full rank-badge text-white font-extrabold text-base shadow-lg">
-                                    {{ loop.index }}
-                                </span>
-                            </td>
-                            <td class="px-6 py-5">
-                                <div class="font-bold text-slate-900 text-lg mb-1">{{ place.name }}</div>
-                                <div class="text-sm text-slate-500 font-medium">{{ place.category }}</div>
-                            </td>
-                            <td class="px-6 py-5">
-                                <a href="{{ place.url }}" target="_blank"
-                                    class="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-800 font-semibold transition-colors group">
-                                    <span>{{ place.address[:40] }}{% if place.address|length > 40 %}...{% endif
-                                        %}</span>
-                                    <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none"
-                                        stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14">
-                                        </path>
-                                    </svg>
-                                </a>
-                            </td>
-                            <td class="px-6 py-5 text-center">
-                                <span
-                                    class="inline-block bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg font-bold text-base shadow">
-                                    {{ place.avg_rating }}
-                                </span>
-                            </td>
-                            <td class="px-6 py-5 text-center font-bold text-slate-700 text-base">
-                                {{ place.reviews }}
-                            </td>
-                            <td class="px-6 py-5 text-center">
-                                {% set sentiment = place.sentiment|float %}
-                                <span
-                                    class="inline-block px-4 py-2 rounded-lg font-bold text-base shadow {% if sentiment >= 0.5 %}bg-green-100 text-green-800{% elif sentiment <= -0.3 %}bg-red-100 text-red-800{% else %}bg-amber-100 text-amber-800{% endif %}">
-                                    {{ place.sentiment }}
-                                </span>
-                            </td>
-                            <td class="px-6 py-5 text-center">
-                                <span
-                                    class="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2 rounded-lg font-extrabold text-lg shadow-lg">
-                                    {{ place.score }}
-                                </span>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="text-center mt-10">
-            <a href="/"
-                class="inline-block bg-gradient-to-r from-slate-700 to-slate-900 hover:from-slate-800 hover:to-black text-white font-bold px-10 py-4 rounded-xl transition-all transform hover:scale-105 shadow-xl text-lg">
-                🔄 New Search
-            </a>
-        </div>
-        {% endif %}
+    <!-- ══════════════════════════════════════════════════════
+         ERROR BANNER
+    ══════════════════════════════════════════════════════ -->
+    {% if error %}
+    <div class="container" style="padding-top:32px;">
+      <div class="alert-error">⚠️ {{ error }}</div>
     </div>
+    {% endif %}
 
+    <!-- ══════════════════════════════════════════════════════
+         HOME / SEARCH
+    ══════════════════════════════════════════════════════ -->
+    {% if not loading and not places %}
+    <section id="hero">
+      <span class="hero-badge">✨ AI-Powered · Zero API Keys · Real Reviews</span>
+
+      <div class="logo" style="margin-bottom:16px;">🌐 ReviewNexus</div>
+      <p class="tagline" style="margin-bottom:8px;">Discover the best restaurants in India</p>
+      <p class="tagline" style="font-size:.9rem;opacity:.7;">Ranked by ratings, reviews &amp; DistilBERT sentiment analysis</p>
+
+      <div class="glass search-card">
+        <form id="search-form" action="/" method="POST" autocomplete="off">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="dish-input">What are you craving?</label>
+              <input id="dish-input" class="form-input" type="text" name="dish"
+                     placeholder="Biryani, Dosa, Pizza…"
+                     value="{{ dish or '' }}" required autofocus>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="city-input">Which city?</label>
+              <input id="city-input" class="form-input" type="text" name="city"
+                     placeholder="Delhi, Mumbai, Bengaluru…"
+                     value="{{ city or '' }}" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="max-places">How many restaurants?</label>
+            <select id="max-places" class="form-select" name="max_places"
+                    style="background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2394a3b8' d='M1 1l5 5 5-5'/%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 16px center;padding-right:40px;">
+              <option value="5">5 restaurants</option>
+              <option value="10">10 restaurants</option>
+              <option value="15" selected>15 restaurants (recommended)</option>
+              <option value="20">20 restaurants</option>
+            </select>
+          </div>
+          <button class="btn-primary" type="submit" id="search-btn">
+            🔍 Find Best Restaurants
+          </button>
+        </form>
+      </div>
+
+      <!-- Stat pills -->
+      <div style="display:flex;gap:16px;margin-top:40px;flex-wrap:wrap;justify-content:center;">
+        <div class="glass" style="padding:14px 24px;border-radius:var(--r-full);font-size:.85rem;color:var(--text-2);">
+          🗺️ OpenStreetMap · Free maps
+        </div>
+        <div class="glass" style="padding:14px 24px;border-radius:var(--r-full);font-size:.85rem;color:var(--text-2);">
+          🤖 DistilBERT sentiment
+        </div>
+        <div class="glass" style="padding:14px 24px;border-radius:var(--r-full);font-size:.85rem;color:var(--text-2);">
+          📊 Bayesian ranking
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- ══════════════════════════════════════════════════════
+         LOADING STATE
+    ══════════════════════════════════════════════════════ -->
     {% if loading %}
-    <script>
-        const statusKey = "{{ status_key }}";
-        const pollInterval = 2000;
-        let pollId = null;
-        let isProcessing = true;
+    <section id="loading-section">
+      <canvas id="loading-canvas"></canvas>
 
-        async function updateProgress() {
-            if (!isProcessing) return;
+      <div>
+        <div class="loading-title">Analysing Data…</div>
+        <div class="loading-subtitle" style="margin-top:6px;">
+          Finding the best
+          <span style="color:var(--purple-light);font-weight:700;">{{ dish }}</span>
+          in
+          <span style="color:var(--amber);font-weight:700;">{{ city }}</span>
+        </div>
+      </div>
 
-            try {
-                const response = await fetch(`/status/{{ dish }}/{{ city }}`);
-                const data = await response.json();
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;">
+        <div class="progress-info">
+          <span class="status-msg" id="status-msg">Starting scraper…</span>
+          <span style="font-weight:700;color:var(--purple-light);" id="pct-text">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+      </div>
 
-                const progressBar = document.getElementById('progress-bar');
-                const progressText = document.getElementById('progress-text');
-                const statusMessage = document.getElementById('status-message');
-
-                if (progressBar) {
-                    progressBar.style.width = data.progress + '%';
-                }
-                if (progressText) {
-                    progressText.textContent = data.progress + '%';
-                }
-                if (statusMessage) {
-                    statusMessage.textContent = data.message || 'Processing...';
-                }
-
-                if (data.status === 'completed') {
-                    isProcessing = false;
-                    if (pollId) clearInterval(pollId);
-                    window.location.href = `/results/{{ dish }}/{{ city }}`;
-                } else if (data.status === 'error') {
-                    isProcessing = false;
-                    if (pollId) clearInterval(pollId);
-                    statusMessage.innerHTML = '❌ ' + data.message;
-                    if (progressBar) progressBar.style.backgroundColor = '#ef4444';
-                }
-            } catch (error) {
-                console.error('Error fetching status:', error);
-            }
-        }
-
-        updateProgress();
-        pollId = setInterval(updateProgress, pollInterval);
-
-        window.addEventListener('beforeunload', () => {
-            isProcessing = false;
-            if (pollId) clearInterval(pollId);
-        });
-    </script>
+      <p style="font-size:.8rem;color:var(--text-3);max-width:360px;line-height:1.6;">
+        Scraping Google Maps, extracting real reviews, and running AI sentiment analysis.
+        This takes 30–90 seconds. Results are cached for instant future searches.
+      </p>
+    </section>
     {% endif %}
 
+    <!-- ══════════════════════════════════════════════════════
+         RESULTS
+    ══════════════════════════════════════════════════════ -->
     {% if places %}
-    <script>
-        let map;
-        let markers = [];
-        const places = {{ places | tojson }};
+    <section id="results-section">
+      <div class="container">
 
-        function initMap() {
-            if (places.length === 0) return;
+        <!-- Header -->
+        <div class="results-header">
+          <div>
+            <div class="results-title">
+              🏆 Best {{ dish|title }} in {{ city|title }}
+            </div>
+            <div class="results-meta" style="margin-top:6px;">
+              {{ places|length }} restaurants · Bayesian composite scores
+            </div>
+            {% if cached %}
+            <div class="cached-badge">⚡ Cached result — instant load</div>
+            {% endif %}
+          </div>
+          <a href="/" class="btn-secondary">↩ New Search</a>
+        </div>
 
-            const centerLat = places.reduce((sum, p) => sum + p.latitude, 0) / places.length;
-            const centerLng = places.reduce((sum, p) => sum + p.longitude, 0) / places.length;
+        <!-- Map -->
+        <div id="map-wrapper">
+          <div id="map"></div>
+        </div>
 
-            map = new google.maps.Map(document.getElementById('map'), {
-                center: { lat: centerLat, lng: centerLng },
-                zoom: 12,
-                styles: [
-                    {
-                        featureType: 'poi',
-                        elementType: 'labels',
-                        stylers: [{ visibility: 'off' }]
-                    }
-                ]
-            });
+        <!-- Cards grid -->
+        <div class="cards-grid">
+          {% for place in places %}
+          {% set rank = loop.index %}
+          {% set sentiment = place.sentiment|float %}
 
-            places.forEach((place, index) => {
-                const marker = new google.maps.Marker({
-                    position: { lat: place.latitude, lng: place.longitude },
-                    map: map,
-                    title: place.name,
-                    label: {
-                        text: String(index + 1),
-                        color: 'white',
-                        fontWeight: 'bold',
-                        fontSize: '14px'
-                    },
-                    animation: google.maps.Animation.DROP,
-                    icon: {
-                        path: google.maps.SymbolPath.CIRCLE,
-                        scale: 15,
-                        fillColor: index === 0 ? '#6366f1' : '#8b5cf6',
-                        fillOpacity: 1,
-                        strokeColor: 'white',
-                        strokeWeight: 3
-                    }
-                });
+          <div class="glass restaurant-card"
+               id="card-{{ loop.index0 }}"
+               onclick="highlightMarker({{ loop.index0 }})">
 
-                const infoWindow = new google.maps.InfoWindow({
-                    content: `
-                        <div style="padding: 10px; max-width: 250px;">
-                            <h3 style="font-weight: bold; font-size: 16px; margin-bottom: 5px; color: #1e293b;">${place.name}</h3>
-                            <p style="color: #64748b; font-size: 13px; margin-bottom: 8px;">${place.address}</p>
-                            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                                <span style="background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">⭐ ${place.avg_rating}</span>
-                                <span style="background: #e0e7ff; color: #3730a3; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 12px;">🏆 ${place.score}</span>
-                            </div>
-                            <a href="${place.url}" target="_blank" style="color: #6366f1; font-weight: 600; text-decoration: none; font-size: 13px;">View on Google Maps →</a>
-                        </div>
-                    `
-                });
+            <!-- Header row -->
+            <div class="card-header">
+              <div style="display:flex;gap:12px;align-items:flex-start;flex:1;min-width:0;">
+                <!-- Rank badge -->
+                <div class="rank-badge {% if rank == 1 %}rank-1{% elif rank == 2 %}rank-2{% elif rank == 3 %}rank-3{% else %}rank-n{% endif %}">
+                  {{ rank }}
+                </div>
+                <div style="min-width:0;">
+                  <div class="card-name" title="{{ place.name }}">{{ place.name }}</div>
+                  <div class="card-category">{{ place.category or 'Restaurant' }}</div>
+                </div>
+              </div>
+              <!-- Score -->
+              <div class="score-gauge-wrapper">
+                <svg width="52" height="52" viewBox="0 0 52 52">
+                  <circle cx="26" cy="26" r="20" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="5"/>
+                  <circle cx="26" cy="26" r="20" fill="none"
+                    stroke="url(#sg{{ loop.index0 }})"
+                    stroke-width="5"
+                    stroke-linecap="round"
+                    stroke-dasharray="{{ (place.score|float / 10 * 125.66)|round(1) }} 125.66"
+                    transform="rotate(-90 26 26)"/>
+                  <defs>
+                    <linearGradient id="sg{{ loop.index0 }}" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#7c3aed"/>
+                      <stop offset="100%" stop-color="#a78bfa"/>
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div class="score-value" style="margin-top:-40px;position:relative;z-index:1;font-size:1rem;">
+                  {{ place.score }}
+                </div>
+                <div class="score-label" style="margin-top:28px;">SCORE</div>
+              </div>
+            </div>
 
-                marker.addListener('click', () => {
-                    closeAllInfoWindows();
-                    infoWindow.open(map, marker);
-                });
+            <!-- Metrics chips -->
+            <div class="card-metrics">
+              <span class="metric-chip chip-rating">
+                ⭐ {{ place.avg_rating }}
+              </span>
+              <span class="metric-chip chip-reviews">
+                📝 {{ place.reviews }} reviews
+              </span>
+              <span class="metric-chip
+                {% if sentiment >= 0.3 %}chip-positive
+                {% elif sentiment <= -0.2 %}chip-negative
+                {% else %}chip-neutral{% endif %}">
+                {% if sentiment >= 0.3 %}😍
+                {% elif sentiment >= 0 %}😊
+                {% elif sentiment >= -0.2 %}😐
+                {% else %}😟{% endif %}
+                {{ place.sentiment }}
+              </span>
+            </div>
 
-                markers.push({ marker, infoWindow });
-            });
-        }
+            <!-- Star bar -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+              <div style="display:flex;gap:2px;">
+                {% set rating_f = place.avg_rating|float %}
+                {% for s in range(5) %}
+                  {% if s < rating_f|int %}
+                  <span style="font-size:.9rem;">⭐</span>
+                  {% elif s < rating_f and (rating_f - rating_f|int) >= 0.5 %}
+                  <span style="font-size:.9rem;opacity:.6;">⭐</span>
+                  {% else %}
+                  <span style="font-size:.9rem;opacity:.2;">☆</span>
+                  {% endif %}
+                {% endfor %}
+              </div>
+              <span style="font-size:.78rem;color:var(--text-3);">{{ place.avg_rating }} / 5.0</span>
+            </div>
 
-        function closeAllInfoWindows() {
-            markers.forEach(m => m.infoWindow.close());
-        }
+            <!-- Address link -->
+            <a class="card-address" href="{{ place.url }}" target="_blank" rel="noopener noreferrer"
+               onclick="event.stopPropagation();">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+                <circle cx="12" cy="10" r="3"/>
+              </svg>
+              {{ place.address[:52] }}{% if place.address|length > 52 %}…{% endif %}
+            </a>
 
-        function highlightMarker(index) {
-            if (markers[index]) {
-                map.setCenter(markers[index].marker.getPosition());
-                map.setZoom(15);
-                closeAllInfoWindows();
-                markers[index].infoWindow.open(map, markers[index].marker);
-                markers[index].marker.setAnimation(google.maps.Animation.BOUNCE);
-                setTimeout(() => {
-                    markers[index].marker.setAnimation(null);
-                }, 2000);
-            }
-        }
+          </div>
+          {% endfor %}
+        </div><!-- /cards-grid -->
 
-        window.onload = initMap;
-    </script>
+        <div style="text-align:center;margin-top:48px;">
+          <a href="/" class="btn-secondary" style="font-size:1rem;padding:14px 32px;">↩ Search Again</a>
+        </div>
+
+      </div>
+    </section>
     {% endif %}
+
+  </div><!-- /page-wrapper -->
+
+  <!-- ══════════════════════════════════════════════════════
+       SCRIPTS
+  ══════════════════════════════════════════════════════ -->
+
+  {% if not loading and not places %}
+  <!-- Hero particle field -->
+  <script src="{{ url_for('static', filename='js/hero.js') }}"></script>
+  <script>
+    // Animate search button
+    document.getElementById('search-form').addEventListener('submit', function () {
+      const btn = document.getElementById('search-btn');
+      btn.textContent = '⏳ Starting search…';
+      btn.disabled = true;
+      btn.style.opacity = '0.7';
+    });
+  </script>
+  {% endif %}
+
+  {% if loading %}
+  <!-- Loading orb -->
+  <script src="{{ url_for('static', filename='js/loading.js') }}"></script>
+  <script>
+    (function () {
+      const fill    = document.getElementById('progress-fill');
+      const pctText = document.getElementById('pct-text');
+      const msgEl   = document.getElementById('status-msg');
+      let pollId, isActive = true;
+
+      async function poll() {
+        if (!isActive) return;
+        try {
+          const r    = await fetch('/status/{{ dish }}/{{ city }}');
+          const data = await r.json();
+
+          const pct = Math.min(100, Math.max(0, data.progress || 0));
+          if (fill)    fill.style.width    = pct + '%';
+          if (pctText) pctText.textContent = pct + '%';
+          if (msgEl)   msgEl.textContent   = data.message || 'Processing…';
+
+          if (data.status === 'completed') {
+            isActive = false;
+            clearInterval(pollId);
+            if (fill) fill.style.width = '100%';
+            if (typeof window._stopLoadingOrb === 'function') window._stopLoadingOrb();
+            setTimeout(() => { window.location.href = '/results/{{ dish }}/{{ city }}'; }, 400);
+          } else if (data.status === 'error') {
+            isActive = false;
+            clearInterval(pollId);
+            if (msgEl) msgEl.innerHTML = '❌ ' + data.message;
+            if (fill)  fill.style.background = '#f43f5e';
+          }
+        } catch (e) { /* network hiccup — keep polling */ }
+      }
+
+      poll();
+      pollId = setInterval(poll, 1500);
+      window.addEventListener('beforeunload', () => { isActive = false; clearInterval(pollId); });
+    })();
+  </script>
+  {% endif %}
+
+  {% if places %}
+  <!-- Inject places data for results.js -->
+  <script>
+    window.PLACES_DATA = {{ places | tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='js/results.js') }}"></script>
+  {% endif %}
 
 </body>
-
 </html>

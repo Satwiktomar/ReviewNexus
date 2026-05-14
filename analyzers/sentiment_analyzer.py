@@ -1,46 +1,90 @@
+"""
+Lazy-loading sentiment analyzer using DistilBERT.
+Model is loaded on first use (not at import time) via a thread-safe singleton,
+so the Flask server starts in < 2 seconds instead of blocking for minutes.
+"""
+
+import threading
 import logging
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-print("Loading sentiment analysis model at startup...")
-sentiment_pipeline = None
-try:
-    from transformers import pipeline
-    import torch
-    torch.set_grad_enabled(False)
-    sentiment_pipeline = pipeline(
-        "sentiment-analysis", 
-        model="distilbert-base-uncased-finetuned-sst-2-english",
-        device=-1,
-        batch_size=16
-    )
-    print("Sentiment model loaded successfully")
-except Exception as e:
-    print(f"Warning: Could not load sentiment model: {e}")
-    sentiment_pipeline = None
+_pipeline = None
+_pipeline_lock = threading.Lock()
+_load_failed = False  # If model loading fails once, skip retrying every call
+
+
+def _get_pipeline():
+    """Return the (lazily loaded) sentiment pipeline, or None if unavailable."""
+    global _pipeline, _load_failed
+
+    if _pipeline is not None:
+        return _pipeline
+    if _load_failed:
+        return None
+
+    with _pipeline_lock:
+        # Double-checked locking
+        if _pipeline is not None:
+            return _pipeline
+        if _load_failed:
+            return None
+
+        logger.info("Loading DistilBERT sentiment model (first use)…")
+        try:
+            from transformers import pipeline
+            import torch
+
+            torch.set_grad_enabled(False)
+            _pipeline = pipeline(
+                "sentiment-analysis",
+                model="distilbert-base-uncased-finetuned-sst-2-english",
+                device=-1,       # CPU
+                batch_size=16,
+            )
+            logger.info("Sentiment model loaded successfully")
+        except Exception as exc:
+            logger.warning(f"Could not load sentiment model: {exc} — scores will default to 0.0")
+            _load_failed = True
+
+    return _pipeline
+
 
 def get_sentiment_for_reviews(reviews: List[Dict]) -> float:
-    if not reviews or not sentiment_pipeline:
+    """
+    Analyse a list of review dicts and return a sentiment score in [-1, +1].
+
+    Each dict must have a 'text' key.
+    Positive reviews contribute positively, negative ones negatively.
+    Returns 0.0 if the model is unavailable or reviews are empty.
+    """
+    if not reviews:
+        return 0.0
+
+    pipe = _get_pipeline()
+    if pipe is None:
         return 0.0
 
     try:
-        review_texts = [review.get('text', '')[:150] for review in reviews if review.get('text')][:10]
-        
-        if not review_texts:
+        texts = [
+            r.get('text', '')[:150]
+            for r in reviews
+            if r.get('text', '').strip()
+        ][:10]  # sample at most 10 reviews
+
+        if not texts:
             return 0.0
-        
-        sentiments = sentiment_pipeline(review_texts, truncation=True, batch_size=8)
-        
-        total_score = 0
-        for sentiment in sentiments:
-            if sentiment['label'] == 'POSITIVE':
-                total_score += sentiment['score']
-            else:
-                total_score -= sentiment['score']
-        
-        return total_score / len(sentiments)
-        
-    except Exception as e:
-        logger.error(f"Error in sentiment analysis: {e}")
+
+        sentiments = pipe(texts, truncation=True, batch_size=8)
+
+        total = 0.0
+        for s in sentiments:
+            score = s['score']
+            total += score if s['label'] == 'POSITIVE' else -score
+
+        return round(total / len(sentiments), 4)
+
+    except Exception as exc:
+        logger.error(f"Sentiment analysis error: {exc}")
         return 0.0

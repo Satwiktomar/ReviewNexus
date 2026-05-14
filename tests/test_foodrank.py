@@ -1,4 +1,4 @@
-"""Unit tests for FoodRank application."""
+"""Unit tests for ReviewNexus application."""
 import unittest
 import json
 from pathlib import Path

@@ -1,1 +1,1 @@
-"""Tests module for FoodRank."""
+"""Tests module for ReviewNexus."""

@@ -1,8 +1,8 @@
-# 🍜 ReviewNexus - AI-Powered Restaurant Discovery
+# 🌐 ReviewNexus - AI-Powered Restaurant Discovery
 
 **Find the best restaurants ranked by real data and AI sentiment analysis**
 
-FoodRank is an intelligent web application that scrapes Google Maps, analyzes restaurant reviews using AI, and ranks the best places to eat based on ratings, review counts, and sentiment scores.
+ReviewNexus is an intelligent web application that scrapes Google Maps, analyzes restaurant reviews using AI, and ranks the best places to eat based on ratings, review counts, and sentiment scores.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![Flask](https://img.shields.io/badge/Flask-2.3-green)
