@@ -64,4 +64,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD wget -qO- http://localhost:5000/ || exit 1
 
 # Run with gunicorn
-CMD ["gunicorn", "app:app", "--workers", "2", "--bind", "0.0.0.0:5000", "--timeout", "300", "--log-level", "info"]
+CMD ["gunicorn", "app:app", "--workers", "1", "--threads", "4", "--bind", "0.0.0.0:5000", "--timeout", "300", "--log-level", "info"]
