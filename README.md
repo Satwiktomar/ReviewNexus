@@ -1,276 +1,112 @@
-# 🌐 ReviewNexus - AI-Powered Restaurant Discovery
+# 🌐 ReviewNexus
 
-**Find the best restaurants ranked by real data and AI sentiment analysis**
+**A Global AI-Powered Restaurant Discovery Engine**
 
-ReviewNexus is an intelligent web application that scrapes Google Maps, analyzes restaurant reviews using AI, and ranks the best places to eat based on ratings, review counts, and sentiment scores.
+ReviewNexus is a production-grade, globally accessible web application that scrapes real-time data from Google Maps, performs natural language processing (NLP) on restaurant reviews, and ranks places using a robust Bayesian composite formula.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue)
-![Flask](https://img.shields.io/badge/Flask-2.3-green)
-![AI](https://img.shields.io/badge/AI-DistilBERT-orange)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+![Next.js](https://img.shields.io/badge/Frontend-Next.js%2015-black)
+![Flask](https://img.shields.io/badge/Backend-Flask-green)
+![Playwright](https://img.shields.io/badge/Scraper-Playwright-orange)
+![Deploy](https://img.shields.io/badge/Deployment-Vercel%20%26%20Render-blue)
+
+**🚀 [Try the Live Demo on Vercel](https://reviewnexus.vercel.app)**
+
 
 ---
 
 ## ✨ Features
 
-### Core Functionality
-- 🔍 **Smart Web Scraping** - Extracts real restaurant data from Google Maps
-- 🤖 **AI Sentiment Analysis** - Uses DistilBERT to analyze review sentiment
-- 📊 **Intelligent Ranking** - Combines ratings, reviews, and sentiment into final scores
-- 🗺️ **Interactive Maps** - Google Maps integration with clickable markers
-- 🎯 **User Controls** - Select 5, 10, 15, or 20 results
-- ⚡ **Smart Caching** - 24-hour cache for instant repeat searches
-- � **Security Hardened** - Input sanitization, HTTPS headers, thread-safe operations
-
-
+- 🌍 **Global Support**: Search for restaurants in any city worldwide. Powered by OpenStreetMap's Nominatim geocoding.
+- 🤖 **AI Sentiment Analysis**: Analyzes the text of real reviews using `TextBlob` (lexicon-based NLP) to evaluate customer sentiment dynamically.
+- 📐 **Bayesian Ranking Engine**: Calculates a true score based on a proprietary weight formula:
+  - 45% Normalized Rating
+  - 30% Normalized Review Volume
+  - 25% AI Sentiment Score
+- 🎭 **Headless Scraping**: Automatically navigates Google Maps using Playwright, bypassing the need for expensive API keys. 
+- 🌐 **Cinematic 3D UI**: Features a fully interactive 3D globe built with `react-globe.gl` representing search results spatially, complete with dynamic day/night cycles.
 
 ---
 
-## 🚀 Quick Start
+## 🏗️ System Architecture
 
-### Prerequisites
-- Python 3.11+
-- Playwright (for web scraping)
-- 2GB RAM minimum
+ReviewNexus uses a decoupled architecture for maximum scalability and deployment flexibility.
 
-### Installation
+### Frontend (Next.js 15)
+- **Framework**: React 19 / Next.js 15 App Router
+- **Styling**: Tailwind CSS v4, Lucide React icons
+- **3D Engine**: `react-globe.gl` + Three.js
+- **Deployment**: Hosted on **Vercel**
 
-1. **Clone the repository**
+### Backend (Python / Flask)
+- **Framework**: Flask + Gunicorn (1 worker, 4 threads for memory optimization)
+- **Scraper**: Playwright (Chromium) - optimized to block heavy assets (images/CSS) to save RAM.
+- **AI/NLP**: `TextBlob` (replaces DistilBERT to fit seamlessly within 512MB RAM limits)
+- **Deployment**: Containerized via Docker and hosted on **Render** (Free Tier).
+
+---
+
+## 🚀 Local Development
+
+### 1. Backend Setup (Python)
 ```bash
+# Clone the repository
 git clone https://github.com/Satwiktomar/ReviewNexus.git
-cd foodrank
-```
+cd ReviewNexus
 
-2. **Install dependencies**
-```bash
+# Install Python dependencies
 pip install -r requirements.txt
-```
 
-3. **Install Playwright browsers**
-```bash
-playwright install chromium
-```
+# Install Playwright browser
+playwright install chromium --with-deps
 
-4. **Configure environment** (optional)
-```bash
-cp .env.example .env
-# Edit .env if needed - works with defaults!
-```
-
-5. **Run the application**
-```bash
+# Run the Flask API
 python app.py
 ```
+*The backend will run on `http://localhost:5000`.*
 
-6. **Open in browser**
-```
-http://localhost:5000
-```
-
----
-
-## 📖 Usage
-
-### Basic Search
-1. Enter what you're craving (e.g., "Dosa", "Pizza", "Biryani")
-2. Enter city (e.g., "Bengaluru", "Mumbai", "Delhi")
-3. Select number of restaurants (5/10/15/20)
-4. Click "Find Best Restaurants"
-
-### Interactive Map
-- Click markers to see restaurant details
-- Click table rows to highlight markers on map
-- Click location links to open in Google Maps
-
-### Results
-- **Rank** - Position based on final score
-- **Rating** - Average star rating
-- **Reviews** - Total review count
-- **Sentiment** - AI-analyzed sentiment score
-- **Score** - Combined ranking score
-
----
-
-## 🏗️ Project Structure
-
-```
-foodrank/
-├── app.py                      # Main Flask application
-├── requirements.txt            # Python dependencies
-├── .env                        # Configuration (create from .env.example)
-│
-├── config/
-│   ├── settings.py            # Application settings
-│   └── logger.py              # Logging configuration
-│
-├── scrapers/
-│   └── google_maps_scraper.py # Web scraping logic
-│
-├── analyzers/
-│   ├── sentiment_analyzer.py  # AI sentiment analysis
-│   └── ranker.py              # Restaurant ranking algorithm
-│
-├── templates/
-│   └── index.html             # Main web interface
-│
-├── data/                       # Output files (auto-created)
-│   ├── data_*.json            # Raw scraped data
-│   └── ranked_*.csv           # Ranked results
-│
-└── logs/                       # Application logs (auto-created)
-    ├── app.log
-    └── scraper.log
-```
-
----
-
-## 🔧 Configuration
-
-Edit `.env` file to customize settings:
-
-```env
-# Flask Configuration
-FLASK_ENV=production
-FLASK_DEBUG=False
-SECRET_KEY=your-secret-key-here
-
-# Scraper Settings
-MAX_PLACES=15                   # Default results (user can override)
-MAX_REVIEWS_PER_PLACE=20
-SCRAPER_TIMEOUT=60
-HEADLESS_BROWSER=True
-
-# AI Model
-SENTIMENT_MODEL=distilbert-base-uncased-finetuned-sst-2-english
-SENTIMENT_SAMPLE_SIZE=10
-
-# Caching
-ENABLE_CACHE=True
-CACHE_EXPIRY_HOURS=24
-
-# Optional: Google Places API
-GOOGLE_MAPS_API_KEY=           # Leave empty to use web scraping
-```
-
----
-
-## 🤖 How It Works
-
-### 1. Web Scraping
-```python
-# Tries 3 strategies in order:
-1. Google Places API (if key provided)
-2. Playwright web scraping (real-time)
-3. High-quality mock data (fallback)
-```
-
-**Scraper Features:**
-- Scrolls page for more results
-- Clicks places for full details
-- Extracts names, ratings, reviews, addresses
-- Validates and filters UI elements
-- Adds geographic coordinates
-- 3 retry attempts with delays
-
-### 2. Sentiment Analysis
-```python
-# Uses DistilBERT transformer model
-- Loads model once at startup
-- Processes reviews in batches
-- Returns sentiment score: -1 to +1
-- Positive reviews boost ranking
-```
-
-### 3. Ranking Algorithm
-```python
-base_score = rating × log10(reviews + 1)
-final_score = base_score × (1 + sentiment)
-```
-
-**Factors:**
-- ⭐ Rating quality (4.5 better than 4.0)
-- 📝 Review quantity (more reviews = higher confidence)
-- 💭 Sentiment score (positive reviews boost ranking)
-
-### 4. Results Display
-- Interactive Google Map with markers
-- Sortable, filterable table
-- Clickable links to Google Maps
-
----
-
-
-## 🛠️ Tech Stack
-
-### Backend
-- **Flask** - Web framework
-- **Playwright** - Browser automation
-- **Pandas** - Data processing
-- **Transformers** - AI sentiment analysis (Hugging Face)
-- **PyTorch** - Deep learning backend
-
-### Frontend
-- **HTML5/CSS3** - Structure and styling
-- **TailwindCSS** - Utility-first CSS
-- **JavaScript** - Interactive features
-- **Google Maps API** - Interactive maps
-
-### AI/ML
-- **DistilBERT** - Transformer model for sentiment
-- **Hugging Face** - Model hosting and inference
-
----
-
-## 📊 Performance
-
-- **First Search**: 30-60 seconds (web scraping + AI analysis)
-- **Cached Search**: Instant (< 1 second)
-- **Memory Usage**: ~500MB (model loaded)
-- **Concurrent Users**: Supports multiple simultaneous searches
-
----
-
-## 🐛 Troubleshooting
-
-### "No module named 'flask'"
+### 2. Frontend Setup (Next.js)
 ```bash
-pip install -r requirements.txt
+# Open a new terminal and navigate to the frontend
+cd frontend
+
+# Install Node dependencies
+npm install
+
+# Start the development server
+npm run dev
 ```
-
-### "Playwright browsers not found"
-```bash
-playwright install chromium
-```
-
-### "Seeing same results"
-Results are cached for 24 hours. Clear cache:
-```bash
-Remove-Item -Path "data/*.json" -Force
-Remove-Item -Path "data/*.csv" -Force
-```
-
-Or search for different dish/city.
-
-### "Sentiment model downloading"
-First run downloads ~400MB model. This is normal and happens once.
+*The frontend will run on `http://localhost:3000`.*
 
 ---
 
+## 🌐 Production Deployment
 
+ReviewNexus is fully configured for cloud deployment.
 
+**Backend (Render)**
+- Connect your GitHub repo to Render as a Web Service.
+- Set the Build Command: `pip install -r requirements.txt && playwright install chromium --with-deps`
+- Set the Start Command: `gunicorn app:app -w 1 --threads 4 --bind 0.0.0.0:$PORT`
+- *Environment Variables*: Set `FRONTEND_URL` to your Vercel domain to secure CORS.
 
-
-## 📝 License
-
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+**Frontend (Vercel)**
+- Connect the `frontend` directory to Vercel.
+- *Environment Variables*: Set `NEXT_PUBLIC_FLASK_URL` to your Render backend URL (e.g., `https://reviewnexus-api.onrender.com`).
 
 ---
 
+## 📊 The Ranking Algorithm
+
+The engine normalizes raw scraped metrics into a 0-1 scale to compute a final, unbiased score:
+
+```text
+Final Score = (0.45 * Normalized Rating) + (0.30 * Normalized Volume) + (0.25 * Sentiment Score)
+```
+- **Normalized Rating**: `(Rating - 1.0) / 4.0`
+- **Normalized Volume**: `min(ReviewCount / 1000, 1.0)`
+- **Sentiment Score**: Calculated via TextBlob polarity `[-1.0, 1.0]`, normalized to `[0.0, 1.0]`.
+
+---
 
 ## ⚠️ Disclaimer
-
-This project is for educational purposes. Web scraping Google Maps may violate their Terms of Service. Use responsibly and consider using the Google Places API for production use.
-
----
-
-**Made with ❤️**
+This project is for educational and portfolio purposes. Headless web scraping of Google Maps may violate Google's Terms of Service if done at scale. Use responsibly.
